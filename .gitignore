@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Env and secrets (never commit)
+.env
+.env.local
+.env.*.local
+
+# Local data (optional; uncomment if you don't want to commit)
+# selected-accounts.json
+
+# OS
+.DS_Store

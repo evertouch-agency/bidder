@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bidder</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f3f2ef;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      background: #0a66c2;
+      color: white;
+      padding: 20px 30px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .header-logo {
+      color: inherit;
+      text-decoration: none;
+    }
+    .header-logo:hover {
+      text-decoration: underline;
+    }
+
+    .header-buttons {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .settings-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .settings-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    .refresh-btn, .logout-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    .refresh-btn:hover, .logout-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+
+    .ad-account-dropdown {
+      position: relative;
+    }
+    .ad-account-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 220px;
+      max-width: 300px;
+      padding: 10px 14px 10px 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.08) 100%);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 12px;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+    .ad-account-trigger:hover {
+      background: linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.12) 100%);
+      border-color: rgba(255,255,255,0.45);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    }
+    .ad-account-trigger:focus {
+      outline: none;
+      border-color: rgba(255,255,255,0.6);
+      box-shadow: 0 0 0 3px rgba(10, 102, 194, 0.35);
+    }
+    .ad-account-trigger .trigger-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ad-account-trigger .trigger-chevron {
+      flex-shrink: 0;
+      color: rgba(255,255,255,0.8);
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    .ad-account-dropdown.is-open .ad-account-trigger .trigger-chevron {
+      transform: rotate(180deg);
+    }
+    .ad-account-list {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      min-width: 100%;
+      max-height: 320px;
+      overflow-y: auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08);
+      border: 1px solid #e0e0e0;
+      z-index: 1000;
+      display: none;
+      padding: 6px 0;
+    }
+    .ad-account-dropdown.is-open .ad-account-list {
+      display: block;
+    }
+    .ad-account-list-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      font-size: 14px;
+      color: #191919;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: none;
+      width: 100%;
+      text-align: left;
+      background: none;
+      font-family: inherit;
+    }
+    .ad-account-list-item:hover {
+      background: #f5f5f5;
+    }
+    .ad-account-list-item.is-selected {
+      background: #e8f4fc;
+      color: #0a66c2;
+      font-weight: 500;
+    }
+    .ad-account-list-item .item-star {
+      flex-shrink: 0;
+      color: #e6b800;
+      font-size: 14px;
+      width: 18px;
+      text-align: center;
+    }
+    .ad-account-list-item .item-star.empty {
+      visibility: hidden;
+    }
+    .ad-account-list-item .item-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: #666;
+    }
+
+    .spinner {
+      border: 3px solid #e0e0e0;
+      border-top: 3px solid #0a66c2;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Login Screen */
+    .login-screen {
+      text-align: center;
+      padding: 80px 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .login-screen h2 {
+      font-size: 28px;
+      color: #191919;
+      margin-bottom: 16px;
+    }
+
+    .login-screen p {
+      color: #666;
+      margin-bottom: 32px;
+      font-size: 16px;
+    }
+
+    .login-btn {
+      background: #0a66c2;
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      border-radius: 28px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .login-btn:hover {
+      background: #004182;
+    }
+
+    .login-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .campaign-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .campaign-toolbar .optimization-filter-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .campaign-toolbar .optimization-filter-wrap label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+    }
+
+    .campaign-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .campaign-search-wrap label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .campaign-search-input {
+      padding: 8px 14px 8px 36px;
+      border: 1px solid #e0e0e0;
+      border-radius: 20px;
+      font-size: 14px;
+      width: 220px;
+      max-width: 100%;
+      background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat 12px 50%;
+      transition: border-color 0.2s;
+    }
+
+    .campaign-search-input:focus {
+      outline: none;
+      border-color: #0a66c2;
+    }
+
+    .campaign-search-input::placeholder {
+      color: #999;
+    }
+
+    .optimization-filter-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .optimization-filter-pills button {
+      padding: 8px 16px;
+      border: 1px solid #e0e0e0;
+      background: white;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .optimization-filter-pills button:hover {
+      background: #f5f5f5;
+      border-color: #ccc;
+    }
+
+    .optimization-filter-pills button.active {
+      background: #0a66c2;
+      border-color: #0a66c2;
+      color: white;
+    }
+
+    .optimization-filter-pills button.active:hover {
+      background: #004182;
+      border-color: #004182;
+    }
+
+    .campaigns-grouped {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .campaign-group {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .campaign-group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .apply-all-btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #0a66c2;
+      color: white;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .apply-all-btn:hover:not(:disabled) {
+      background: #004182;
+    }
+
+    .apply-all-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .settings-page {
+      max-width: 560px;
+      margin: 0 auto;
+    }
+    .settings-page h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: #191919;
+    }
+    .settings-page .settings-sub {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .settings-accounts-list {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+    }
+    .settings-account-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .settings-account-item:last-child {
+      border-bottom: none;
+    }
+    .settings-account-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #0a66c2;
+    }
+    .settings-account-item label {
+      flex: 1;
+      cursor: pointer;
+      font-size: 15px;
+      color: #191919;
+    }
+    .settings-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .settings-save-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #0a66c2;
+      color: white;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .settings-save-btn:hover:not(:disabled) {
+      background: #004182;
+    }
+    .settings-save-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .settings-back-link {
+      color: #0a66c2;
+      font-size: 14px;
+      text-decoration: none;
+    }
+    .settings-back-link:hover {
+      text-decoration: underline;
+    }
+
+    .group-heading {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+      color: #191919;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .campaign-group .campaigns-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .campaigns-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .campaign-card {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .campaign-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .campaign-name {
+      font-size: 18px;
+      font-weight: 600;
+      color: #191919;
+    }
+
+    .campaign-status {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+
+    .status-active {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+
+    .status-paused {
+      background: #fff3e0;
+      color: #f57c00;
+    }
+
+    .campaign-card-body {
+      display: flex;
+      gap: 24px;
+      align-items: stretch;
+      flex-wrap: wrap;
+    }
+
+    .campaign-card-left {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 160px;
+    }
+
+    .campaign-card-right {
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .metrics-row {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 6px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .metric-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: #191919;
+    }
+
+    .spend-bar-container {
+      margin-top: 4px;
+    }
+
+    .spend-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    .spend-bar {
+      height: 8px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .spend-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .spend-under { background: #f57c00; }
+    .spend-optimal { background: #4caf50; }
+    .spend-over { background: #f44336; }
+
+    .recommendation {
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .recommendation-increase {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+    }
+
+    .recommendation-decrease {
+      background: #fff3e0;
+      border-left: 4px solid #ff9800;
+    }
+
+    .recommendation-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .recommendation-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+    }
+
+    .icon-increase { background: #2196f3; }
+    .icon-decrease { background: #ff9800; }
+
+    .recommendation-title {
+      font-weight: 600;
+      color: #191919;
+    }
+
+    .recommendation-reason {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    .bid-adjustment-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .bid-adjustment-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+    }
+
+    .bid-adjustment-pills {
+      display: flex;
+      gap: 6px;
+    }
+
+    .bid-adjustment-pill {
+      padding: 6px 12px;
+      border: 1px solid #e0e0e0;
+      background: white;
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .bid-adjustment-pill:hover {
+      background: #f5f5f5;
+      border-color: #ccc;
+    }
+
+    .bid-adjustment-pill.active {
+      background: #0a66c2;
+      border-color: #0a66c2;
+      color: white;
+    }
+
+    .bid-change {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .bid-box {
+      text-align: center;
+    }
+
+    .bid-box-label {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 2px;
+    }
+
+    .bid-box-value {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .bid-arrow {
+      font-size: 20px;
+      color: #666;
+    }
+
+    .apply-btn {
+      background: #0a66c2;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+    }
+
+    .apply-btn:hover {
+      background: #004182;
+    }
+
+    .apply-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .apply-btn.success {
+      background: #4caf50;
+    }
+
+    .no-recommendation {
+      padding: 16px;
+      background: #e8f5e9;
+      border-radius: 8px;
+      border-left: 4px solid #4caf50;
+      color: #2e7d32;
+      font-size: 14px;
+    }
+
+    .recommendation-waiting {
+      padding: 20px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      border-left: 4px solid #9e9e9e;
+      color: #616161;
+      font-size: 14px;
+    }
+
+    .recommendation-waiting-text {
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .recommendation-waiting-sub {
+      font-size: 13px;
+      color: #757575;
+      margin: 0;
+    }
+
+    .revert-btn {
+      margin-top: 16px;
+      padding: 10px 20px;
+      background: white;
+      border: 1px solid #9e9e9e;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #616161;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      width: 100%;
+    }
+
+    .revert-btn:hover {
+      background: #eeeeee;
+      border-color: #757575;
+      color: #424242;
+    }
+
+    .revert-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .error-message {
+      background: #ffebee;
+      color: #c62828;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .no-campaigns {
+      text-align: center;
+      padding: 60px;
+      background: white;
+      border-radius: 8px;
+      color: #666;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 16px 24px;
+      border-radius: 8px;
+      color: white;
+      font-weight: 500;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast-success { background: #4caf50; }
+    .toast-error { background: #f44336; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1><a href="#" class="header-logo" id="headerLogo" title="Campaigns">Bidder</a></h1>
+      <div class="header-buttons" id="headerButtons" style="display: none;">
+        <div class="ad-account-dropdown" id="adAccountDropdown">
+          <button type="button" class="ad-account-trigger" id="adAccountTrigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Ad account">
+            <span class="trigger-label" id="adAccountTriggerLabel">Loading accounts…</span>
+            <span class="trigger-chevron" aria-hidden="true">▼</span>
+          </button>
+          <div class="ad-account-list" id="adAccountList" role="listbox" aria-hidden="true"></div>
+        </div>
+        <button class="refresh-btn" onclick="loadAnalysis()">Refresh Data</button>
+        <button class="settings-btn" id="settingsBtn" onclick="showSettingsPage()">Settings</button>
+      </div>
+    </header>
+
+    <div id="content">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // Check auth status on load
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/status');
+        const { authenticated, hasAdAccount, currentAdAccountId } = await response.json();
+
+        if (!authenticated) {
+          showLoginScreen();
+        } else if (!hasAdAccount) {
+          window.location.href = '/select-account.html';
+        } else {
+          document.getElementById('headerButtons').style.display = 'flex';
+          await loadAdAccountDropdown(currentAdAccountId);
+          loadAnalysis();
+        }
+      } catch (error) {
+        showLoginScreen();
+      }
+    }
+
+    let adAccountNames = {};
+    let adAccountHasOptimization = {};
+    let selectedAccountId = null;
+    let currentView = 'campaigns'; // 'campaigns' | 'settings'
+
+    document.getElementById('headerLogo').onclick = function(e) {
+      e.preventDefault();
+      if (currentView === 'settings') showCampaignsView();
+    };
+
+    async function showCampaignsView() {
+      currentView = 'campaigns';
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+      await loadAdAccountDropdown(selectedAccountId);
+      loadAnalysis();
+    }
+
+    function showSettingsPage() {
+      currentView = 'settings';
+      renderSettingsPage();
+    }
+
+    async function renderSettingsPage() {
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading settings...</p></div>';
+      try {
+        const response = await fetch('/api/settings/accounts');
+        const data = await response.json();
+        if (data.error) {
+          content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(data.error)}</p></div>`;
+          return;
+        }
+        const accounts = data.accounts || [];
+        const selectedIds = data.selectedIds; // null = all, [] = none, [...] = only these
+        const selectedSet = selectedIds === null ? null : new Set(selectedIds.map(id => String(id)));
+        const listHtml = accounts.length === 0
+          ? '<p class="settings-sub">No ad accounts found.</p>'
+          : `
+          <div class="settings-accounts-list">
+            ${accounts.map(a => {
+              const id = String(a.id);
+              const name = escapeHtml(a.name || a.id || 'Ad Account');
+              const checked = selectedSet === null ? true : selectedSet.has(id);
+              return `<div class="settings-account-item">
+                <input type="checkbox" id="settings-acc-${id}" value="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
+                <label for="settings-acc-${id}">${name}</label>
+              </div>`;
+            }).join('')}
+          </div>`;
+        content.innerHTML = `
+          <div class="settings-page">
+            <h2>Settings</h2>
+            <p class="settings-sub">Choose which accounts appear in the account list and can be optimized.</p>
+            ${listHtml}
+            <div class="settings-actions">
+              <button type="button" class="settings-save-btn" id="settingsSaveBtn" onclick="saveSettingsAccounts()">Save</button>
+              <a href="#" class="settings-back-link" onclick="event.preventDefault(); showCampaignsView(); return false;">← Back to campaigns</a>
+            </div>
+          </div>`;
+      } catch (e) {
+        content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(e.message)}</p></div>`;
+      }
+    }
+
+    async function saveSettingsAccounts() {
+      const btn = document.getElementById('settingsSaveBtn');
+      const checkboxes = document.querySelectorAll('.settings-account-item input[type="checkbox"]:checked');
+      const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      try {
+        const response = await fetch('/api/settings/selected-accounts', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selectedIds })
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.details || data.error);
+        showToast('Settings saved. Account list updated.', 'success');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+        await loadAdAccountDropdown(selectedAccountId);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      }
+    }
+
+    async function loadAdAccountDropdown(currentAdAccountId) {
+      const trigger = document.getElementById('adAccountTrigger');
+      const triggerLabel = document.getElementById('adAccountTriggerLabel');
+      const listEl = document.getElementById('adAccountList');
+      const dropdown = document.getElementById('adAccountDropdown');
+      if (!trigger || !listEl) return;
+      try {
+        const recentlyOptimizedIds = Array.from(getRecentlyOptimizedCampaignIds());
+        const recentQs = recentlyOptimizedIds.length ? '&recentlyOptimized=' + encodeURIComponent(recentlyOptimizedIds.join(',')) : '';
+        const response = await fetch('/api/ad-accounts?includeOptimization=1' + recentQs);
+        const data = await response.json();
+        if (data.error) {
+          triggerLabel.textContent = 'Error loading accounts';
+          return;
+        }
+        const accounts = data.accounts || [];
+        adAccountNames = {};
+        adAccountHasOptimization = {};
+        accounts.forEach(a => {
+          const sid = String(a.id);
+          adAccountNames[sid] = a.name || a.id || 'Ad Account';
+          adAccountHasOptimization[sid] = !!a.hasOptimization;
+        });
+        // List accounts with open optimizations (⚠️) at the top
+        accounts.sort((a, b) => {
+          const aHas = !!adAccountHasOptimization[String(a.id)];
+          const bHas = !!adAccountHasOptimization[String(b.id)];
+          return (bHas ? 1 : 0) - (aHas ? 1 : 0);
+        });
+        if (currentAdAccountId && accounts.some(a => String(a.id) === String(currentAdAccountId))) {
+          selectedAccountId = String(currentAdAccountId);
+        } else if (accounts.length > 0) {
+          selectedAccountId = String(accounts[0].id);
+        } else {
+          selectedAccountId = null;
+        }
+        triggerLabel.textContent = selectedAccountId
+          ? (adAccountHasOptimization[selectedAccountId] ? '⚠️ ' : '') + (adAccountNames[selectedAccountId] || selectedAccountId)
+          : 'No accounts';
+        listEl.innerHTML = '';
+        if (accounts.length === 0) {
+          listEl.innerHTML = '<div class="ad-account-list-item" style="cursor:default;color:#666">No accounts</div>';
+        } else {
+          accounts.forEach(a => {
+            const id = String(a.id);
+            const name = escapeHtml(adAccountNames[id] || id);
+            const hasOpt = adAccountHasOptimization[id];
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'ad-account-list-item' + (id === selectedAccountId ? ' is-selected' : '');
+            btn.setAttribute('data-account-id', id);
+            btn.setAttribute('role', 'option');
+            btn.setAttribute('aria-selected', id === selectedAccountId);
+            btn.innerHTML = `<span class="item-star ${hasOpt ? '' : 'empty'}" aria-hidden="true">${hasOpt ? '⚠️' : ''}</span><span class="item-name">${name}</span>`;
+            btn.onclick = (e) => { e.stopPropagation(); selectAccount(id); };
+            listEl.appendChild(btn);
+          });
+        }
+        trigger.onclick = (e) => { e.stopPropagation(); toggleAdAccountDropdown(); };
+        document.addEventListener('click', (e) => {
+          if (!dropdown.contains(e.target)) closeAdAccountDropdown();
+        });
+      } catch (e) {
+        triggerLabel.textContent = 'Error loading accounts';
+      }
+    }
+
+    function toggleAdAccountDropdown() {
+      const dropdown = document.getElementById('adAccountDropdown');
+      if (!dropdown) return;
+      dropdown.classList.toggle('is-open');
+      const list = document.getElementById('adAccountList');
+      if (list) list.setAttribute('aria-hidden', !dropdown.classList.contains('is-open'));
+      const trigger = document.getElementById('adAccountTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', dropdown.classList.contains('is-open'));
+    }
+
+    function closeAdAccountDropdown() {
+      const dropdown = document.getElementById('adAccountDropdown');
+      if (!dropdown) return;
+      dropdown.classList.remove('is-open');
+      const list = document.getElementById('adAccountList');
+      if (list) list.setAttribute('aria-hidden', 'true');
+      const trigger = document.getElementById('adAccountTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    async function selectAccount(accountId) {
+      closeAdAccountDropdown();
+      if (accountId === selectedAccountId) return;
+      const prev = selectedAccountId;
+      selectedAccountId = accountId;
+      const triggerLabel = document.getElementById('adAccountTriggerLabel');
+      if (triggerLabel) triggerLabel.textContent = adAccountNames[accountId] || accountId;
+      updateAdAccountDropdownListSelection();
+      try {
+        const response = await fetch('/api/ad-accounts/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId })
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        loadAnalysis();
+      } catch (err) {
+        selectedAccountId = prev;
+        if (triggerLabel) triggerLabel.textContent = adAccountNames[prev] || prev;
+        updateAdAccountDropdownListSelection();
+        showToast('Failed to switch account: ' + err.message, 'error');
+      }
+    }
+
+    function updateAdAccountDropdownListSelection() {
+      const listEl = document.getElementById('adAccountList');
+      if (!listEl) return;
+      listEl.querySelectorAll('.ad-account-list-item[data-account-id]').forEach(item => {
+        const id = item.getAttribute('data-account-id');
+        item.classList.toggle('is-selected', id === selectedAccountId);
+        item.setAttribute('aria-selected', id === selectedAccountId);
+      });
+    }
+
+    function updateAdAccountDropdownStar() {
+      const triggerLabel = document.getElementById('adAccountTriggerLabel');
+      const listEl = document.getElementById('adAccountList');
+      if (!selectedAccountId) return;
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const hasOptimization = allCampaigns.some(c =>
+        c.recommendation && !recentlyOptimized.has(String(c.id))
+      );
+      adAccountHasOptimization[selectedAccountId] = hasOptimization;
+      const baseName = adAccountNames[selectedAccountId] || selectedAccountId;
+      if (triggerLabel) {
+        triggerLabel.textContent = hasOptimization ? `⚠️ ${baseName}` : baseName;
+      }
+      if (listEl) {
+        listEl.querySelectorAll('.ad-account-list-item[data-account-id]').forEach(item => {
+          if (item.getAttribute('data-account-id') !== selectedAccountId) return;
+          const starEl = item.querySelector('.item-star');
+          const nameEl = item.querySelector('.item-name');
+          if (starEl) {
+            starEl.textContent = hasOptimization ? '⚠️' : '';
+            starEl.classList.toggle('empty', !hasOptimization);
+          }
+          if (nameEl) nameEl.textContent = baseName;
+        });
+      }
+    }
+
+    function showLoginScreen() {
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="login-screen">
+          <h2>Welcome to Bidder</h2>
+          <p>Connect your LinkedIn Ads account to analyze spend and optimize bids.</p>
+          <button class="login-btn" onclick="window.location.href='/auth/login'">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.32 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.79M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/>
+            </svg>
+            Sign in with LinkedIn
+          </button>
+        </div>
+      `;
+    }
+
+    async function loadAnalysis() {
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Analyzing spend vs budget...</p>
+        </div>
+      `;
+
+      await loadRecentlyOptimized();
+
+      try {
+        const response = await fetch('/api/spend-analysis?bidAdjustmentPercent=2');
+        const data = await response.json();
+
+        if (data.error) {
+          throw new Error(data.details || data.error);
+        }
+
+        if (!data.analysis || data.analysis.length === 0) {
+          content.innerHTML = `
+            <div class="no-campaigns">
+              <h3>No (active) Campaigns Found</h3>
+              <p>Make sure you have (active) campaigns in your LinkedIn Ads account.</p>
+            </div>
+          `;
+          return;
+        }
+
+        allCampaigns = data.analysis;
+        renderCampaignsPage();
+        updateAdAccountDropdownStar();
+      } catch (error) {
+        content.innerHTML = `
+          <div class="error-message">
+            <h3>Error Loading Data</h3>
+            <p>${error.message}</p>
+            <p style="margin-top: 10px; font-size: 13px;">
+              Try logging in again.
+            </p>
+            <button class="login-btn" style="margin-top: 20px;" onclick="window.location.href='/auth/login'">
+              Sign in with LinkedIn
+            </button>
+          </div>
+        `;
+      }
+    }
+
+    const RECENTLY_OPTIMIZED_KEY = 'bidOptimizerApplied';
+    const RECENTLY_OPTIMIZED_MS = 48 * 60 * 60 * 1000;
+    // When server stores 48h window (Supabase), we cache the API response per account
+    let recentlyOptimizedCache = { accountId: null, entries: [] };
+
+    async function loadRecentlyOptimized() {
+      if (!selectedAccountId) {
+        recentlyOptimizedCache = { accountId: null, entries: [], useServer: false };
+        return;
+      }
+      try {
+        const response = await fetch('/api/recently-optimized?adAccountId=' + encodeURIComponent(selectedAccountId));
+        const data = await response.json();
+        const useServer = !!data.useServer;
+        recentlyOptimizedCache = {
+          accountId: useServer ? selectedAccountId : null,
+          entries: (data.entries || []).map((e) => ({
+            campaignId: String(e.campaignId),
+            appliedAt: typeof e.appliedAt === 'number' ? e.appliedAt : new Date(e.appliedAt || 0).getTime(),
+            previousBid: e.previousBid != null ? Number(e.previousBid) : undefined
+          })),
+          useServer
+        };
+      } catch (e) {
+        recentlyOptimizedCache = { accountId: null, entries: [], useServer: false };
+      }
+    }
+
+    function getRecentlyOptimizedList() {
+      const now = Date.now();
+      const cutoff = now - RECENTLY_OPTIMIZED_MS;
+      if (recentlyOptimizedCache.useServer && recentlyOptimizedCache.accountId === selectedAccountId) {
+        return recentlyOptimizedCache.entries.filter((item) => item.appliedAt > cutoff);
+      }
+      try {
+        const raw = localStorage.getItem(RECENTLY_OPTIMIZED_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        const valid = list.filter((item) => item.appliedAt > cutoff);
+        if (valid.length !== list.length) {
+          localStorage.setItem(RECENTLY_OPTIMIZED_KEY, JSON.stringify(valid));
+        }
+        return valid;
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function getRecentlyOptimizedCampaignIds() {
+      return new Set(getRecentlyOptimizedList().map((item) => String(item.campaignId)));
+    }
+
+    function getRecentlyOptimizedEntry(campaignId) {
+      const list = getRecentlyOptimizedList();
+      return list.find((item) => String(item.campaignId) === String(campaignId)) || null;
+    }
+
+    function recordBidApplied(campaignId, previousBid) {
+      if (recentlyOptimizedCache.useServer && recentlyOptimizedCache.accountId === selectedAccountId) {
+        recentlyOptimizedCache.entries.push({
+          campaignId: String(campaignId),
+          appliedAt: Date.now(),
+          previousBid: Number(previousBid)
+        });
+        return;
+      }
+      try {
+        const raw = localStorage.getItem(RECENTLY_OPTIMIZED_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        list.push({ campaignId: String(campaignId), appliedAt: Date.now(), previousBid: Number(previousBid) });
+        localStorage.setItem(RECENTLY_OPTIMIZED_KEY, JSON.stringify(list));
+      } catch (e) {}
+    }
+
+    function removeFromRecentlyOptimized(campaignId) {
+      if (recentlyOptimizedCache.useServer && recentlyOptimizedCache.accountId === selectedAccountId) {
+        recentlyOptimizedCache.entries = recentlyOptimizedCache.entries.filter(
+          (item) => String(item.campaignId) !== String(campaignId)
+        );
+        return;
+      }
+      try {
+        const list = getRecentlyOptimizedList().filter((item) => String(item.campaignId) !== String(campaignId));
+        localStorage.setItem(RECENTLY_OPTIMIZED_KEY, JSON.stringify(list));
+      } catch (e) {}
+    }
+
+    let allCampaigns = [];
+    let campaignSearchQuery = '';
+    let currentOptimizationFilter = 'OPTIMIZATION_AVAILABLE';
+    const selectedBidAdjustmentByCampaign = {};
+
+    function setBidAdjustmentForCampaign(campaignId, pct) {
+      selectedBidAdjustmentByCampaign[campaignId] = pct;
+      const container = document.getElementById('campaigns-grid-container');
+      if (container) {
+        const baseFiltered = getBaseFilteredCampaigns();
+        const filtered = getFilteredCampaigns();
+        const gridHtml = currentOptimizationFilter === 'ALL'
+          ? getCampaignsGridHtmlGrouped(baseFiltered)
+          : getCampaignsGridHtml(filtered);
+        container.innerHTML = gridHtml;
+      }
+    }
+
+    function setOptimizationFilter(value) {
+      currentOptimizationFilter = value;
+      renderCampaignsPage();
+    }
+
+    function setCampaignSearch(value) {
+      campaignSearchQuery = value;
+      const container = document.getElementById('campaigns-grid-container');
+      if (container) {
+        const gridHtml = currentOptimizationFilter === 'ALL'
+          ? getCampaignsGridHtmlGrouped(getBaseFilteredCampaigns())
+          : getCampaignsGridHtml(getFilteredCampaigns());
+        container.innerHTML = gridHtml;
+      } else {
+        renderCampaignsPage();
+      }
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function formatMoney(amount, currencyCode) {
+      const code = (currencyCode || 'USD').toUpperCase();
+      const n = typeof amount === 'number' ? amount : parseFloat(amount) || 0;
+      const formatted = n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const symbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: 'CHF ' };
+      const prefix = symbols[code] || code + ' ';
+      return prefix + formatted;
+    }
+
+    function formatMoneyWhole(amount, currencyCode) {
+      const code = (currencyCode || 'USD').toUpperCase();
+      const n = typeof amount === 'number' ? amount : parseFloat(amount) || 0;
+      const formatted = Math.round(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+      const symbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: 'CHF ' };
+      const prefix = symbols[code] || code + ' ';
+      return prefix + formatted;
+    }
+
+    function getFilteredCampaigns() {
+      const searchLower = campaignSearchQuery.trim().toLowerCase();
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      let filtered = allCampaigns;
+      if (searchLower) {
+        filtered = filtered.filter(c => (c.name || '').toLowerCase().includes(searchLower));
+      }
+      if (currentOptimizationFilter === 'OPTIMIZATION_AVAILABLE') {
+        filtered = filtered.filter(c => c.recommendation && !recentlyOptimized.has(String(c.id)));
+      } else if (currentOptimizationFilter === 'OPTIMIZED') {
+        filtered = filtered.filter(c => !c.recommendation || recentlyOptimized.has(String(c.id)));
+      }
+      return filtered;
+    }
+
+    function getBaseFilteredCampaigns() {
+      const searchLower = campaignSearchQuery.trim().toLowerCase();
+      let filtered = allCampaigns;
+      if (searchLower) {
+        filtered = filtered.filter(c => (c.name || '').toLowerCase().includes(searchLower));
+      }
+      return filtered;
+    }
+
+    function getCampaignsGridHtml(filtered) {
+      if (filtered.length) return filtered.map(campaign => renderCampaignCard(campaign)).join('');
+      let emptyHtml;
+      if (currentOptimizationFilter === 'OPTIMIZATION_AVAILABLE' && !campaignSearchQuery.trim()) {
+        emptyHtml = '<h3>✅ All campaigns optimized</h3><p>Check back tomorrow.</p>';
+      } else if (currentOptimizationFilter === 'OPTIMIZED') {
+        emptyHtml = '<h3>No optimized campaigns yet</h3><p>Check for available optimizations.</p>';
+      } else {
+        emptyHtml = '<h3>No campaigns match</h3><p>Try a different search term.</p>';
+      }
+      return `
+        <div class="no-campaigns" style="grid-column: 1/-1;">
+          ${emptyHtml}
+        </div>
+      `;
+    }
+
+    function getCampaignsGridHtmlGrouped(baseFiltered) {
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const withRec = baseFiltered.filter(c => c.recommendation && !recentlyOptimized.has(String(c.id)));
+      const withoutRec = baseFiltered.filter(c => !c.recommendation || recentlyOptimized.has(String(c.id)));
+      const hasAny = withRec.length > 0 || withoutRec.length > 0;
+      if (!hasAny) {
+        return `
+          <div class="no-campaigns" style="grid-column: 1/-1;">
+            <h3>No campaigns match</h3>
+            <p>Try a different search term.</p>
+          </div>
+        `;
+      }
+      const optAvailableHtml = withRec.length
+        ? `<section class="campaign-group">
+            <div class="campaign-group-header">
+              <h3 class="group-heading">Optimization available</h3>
+              <button type="button" class="apply-all-btn" id="applyAllRecommendationsBtn" onclick="applyAllRecommendations()">Apply all recommendations</button>
+            </div>
+            <div class="campaigns-grid">${withRec.map(c => renderCampaignCard(c)).join('')}</div>
+          </section>`
+        : '';
+      const optimizedHtml = withoutRec.length
+        ? `<section class="campaign-group">
+            <h3 class="group-heading">Optimized</h3>
+            <div class="campaigns-grid">${withoutRec.map(c => renderCampaignCard(c)).join('')}</div>
+          </section>`
+        : '';
+      return `<div class="campaigns-grouped">${optAvailableHtml}${optimizedHtml}</div>`;
+    }
+
+    function renderCampaignsPage() {
+      const content = document.getElementById('content');
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const baseFiltered = getBaseFilteredCampaigns();
+      const filtered = getFilteredCampaigns();
+
+      const optAvailableCount = allCampaigns.filter(c => c.recommendation && !recentlyOptimized.has(String(c.id))).length;
+      const optimizedCount = allCampaigns.filter(c => !c.recommendation || recentlyOptimized.has(String(c.id))).length;
+      const optimizationPillsHtml = `
+        <button type="button" class="${currentOptimizationFilter === 'OPTIMIZATION_AVAILABLE' ? 'active' : ''}" onclick="setOptimizationFilter('OPTIMIZATION_AVAILABLE')">Optimization available (${optAvailableCount})</button>
+        <button type="button" class="${currentOptimizationFilter === 'OPTIMIZED' ? 'active' : ''}" onclick="setOptimizationFilter('OPTIMIZED')">Optimized (${optimizedCount})</button>
+        <button type="button" class="${currentOptimizationFilter === 'ALL' ? 'active' : ''}" onclick="setOptimizationFilter('ALL')">All (${allCampaigns.length})</button>
+      `;
+      const gridHtml = currentOptimizationFilter === 'ALL'
+        ? getCampaignsGridHtmlGrouped(baseFiltered)
+        : getCampaignsGridHtml(filtered);
+
+      const showApplyAllHeader = currentOptimizationFilter === 'OPTIMIZATION_AVAILABLE' && filtered.length > 0;
+      const applyAllHeaderHtml = showApplyAllHeader
+        ? `<div style="margin-bottom: 12px; display: flex; justify-content: flex-end;"><button type="button" class="apply-all-btn" id="applyAllRecommendationsBtn" onclick="applyAllRecommendations()">Apply all recommendations</button></div>`
+        : '';
+
+      content.innerHTML = `
+        <div class="campaign-toolbar">
+          <div class="optimization-filter-wrap">
+            <label>View:</label>
+            <div class="optimization-filter-pills">
+              ${optimizationPillsHtml}
+            </div>
+          </div>
+          <div class="campaign-search-wrap">
+            <label for="campaign-search">Search:</label>
+            <input type="text" id="campaign-search" class="campaign-search-input" placeholder="Campaign name…" value="${escapeHtml(campaignSearchQuery)}" oninput="setCampaignSearch(this.value)">
+          </div>
+        </div>
+        ${applyAllHeaderHtml}
+        <div class="campaigns-grid" id="campaigns-grid-container">
+          ${gridHtml}
+        </div>
+      `;
+    }
+
+    function getWaitingRecommendationHtml(campaignId) {
+      const revertEntry = getRecentlyOptimizedEntry(campaignId);
+      const hasRevert = revertEntry && typeof revertEntry.previousBid === 'number';
+      return `
+        <div class="recommendation-waiting">
+          <p class="recommendation-waiting-text">Waiting for new avg daily spend data for the next 48 hours.</p>
+          <p class="recommendation-waiting-sub">Bid optimization will be available again after that.</p>
+          ${hasRevert ? `<button type="button" class="revert-btn" onclick="revertBid('${campaignId}', this)">Revert bid adjustment</button>` : ''}
+        </div>
+      `;
+    }
+
+    function renderCampaignCard(campaign) {
+      const spendClass = campaign.spendPercentage < 90 ? 'spend-under' :
+                         campaign.spendPercentage > 100 ? 'spend-over' : 'spend-optimal';
+
+      const statusClass = campaign.status === 'ACTIVE' ? 'status-active' : 'status-paused';
+      const currencyCode = campaign.currencyCode || 'USD';
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const isRecentlyOptimized = campaign.recommendation && recentlyOptimized.has(String(campaign.id));
+
+      let recommendationHtml = '';
+      if (isRecentlyOptimized) {
+        const revertEntry = getRecentlyOptimizedEntry(campaign.id);
+        const hasRevert = revertEntry && typeof revertEntry.previousBid === 'number';
+        recommendationHtml = `
+          <div class="recommendation-waiting">
+            <p class="recommendation-waiting-text">Waiting for new avg daily spend data for the next 48 hours.</p>
+            <p class="recommendation-waiting-sub">Bid optimization will be available again after that.</p>
+            ${hasRevert ? `<button type="button" class="revert-btn" onclick="revertBid('${campaign.id}', this)">Revert bid adjustment</button>` : ''}
+          </div>
+        `;
+      } else if (campaign.recommendation) {
+        const rec = campaign.recommendation;
+        const isIncrease = rec.action === 'increase';
+        const selectedPct = selectedBidAdjustmentByCampaign[campaign.id] ?? 2;
+        const recommendedBid = isIncrease
+          ? Math.round(rec.currentBid * (1 + selectedPct / 100) * 100) / 100
+          : Math.round(rec.currentBid * (1 - selectedPct / 100) * 100) / 100;
+        const pct2Active = selectedPct === 2 ? 'active' : '';
+        const pct5Active = selectedPct === 5 ? 'active' : '';
+        const pct10Active = selectedPct === 10 ? 'active' : '';
+        recommendationHtml = `
+          <div class="recommendation recommendation-${rec.action}">
+            <div class="recommendation-header">
+              <div class="recommendation-icon icon-${rec.action}">
+                ${isIncrease ? '+' : '-'}
+              </div>
+              <span class="recommendation-title">
+                ${isIncrease ? 'Increase' : 'Decrease'} Bid by ${selectedPct}%${selectedPct === 2 ? ' (recommended)' : ''}
+              </span>
+            </div>
+            <p class="recommendation-reason">${rec.reason}</p>
+            <div class="bid-adjustment-row">
+              <span class="bid-adjustment-label">Adjustment:</span>
+              <div class="bid-adjustment-pills">
+                <button type="button" class="bid-adjustment-pill ${pct2Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 2)" title="Recommended">2%</button>
+                <button type="button" class="bid-adjustment-pill ${pct5Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 5)">5%</button>
+                <button type="button" class="bid-adjustment-pill ${pct10Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 10)">10%</button>
+              </div>
+            </div>
+            <div class="bid-change">
+              <div class="bid-box">
+                <div class="bid-box-label">Current Bid</div>
+                <div class="bid-box-value">${formatMoney(rec.currentBid, currencyCode)}</div>
+              </div>
+              <span class="bid-arrow">→</span>
+              <div class="bid-box">
+                <div class="bid-box-label">${selectedPct === 2 ? 'Recommended Bid' : 'New Bid'}</div>
+                <div class="bid-box-value" style="color: ${isIncrease ? '#2196f3' : '#ff9800'}">
+                  ${formatMoney(recommendedBid, currencyCode)}
+                </div>
+              </div>
+            </div>
+            <button class="apply-btn" onclick="applyBid('${campaign.id}', ${recommendedBid}, ${rec.currentBid}, this)">
+              ${selectedPct === 2 ? 'Apply Recommended Bid' : 'Apply New Bid'}
+            </button>
+          </div>
+        `;
+      } else if (campaign.spendPercentage >= 90 && campaign.spendPercentage <= 100) {
+        recommendationHtml = `
+          <div class="no-recommendation">
+            Spend is on track - no bid adjustment needed
+          </div>
+        `;
+      } else if (campaign.currentBid === 0) {
+        recommendationHtml = `
+          <div class="no-recommendation" style="background: #fff3e0; border-color: #ff9800; color: #f57c00;">
+            No bid configured for this campaign
+          </div>
+        `;
+      }
+
+      return `
+        <div class="campaign-card" data-campaign-id="${campaign.id}">
+          <div class="campaign-header">
+            <span class="campaign-name">${campaign.name}</span>
+            <span class="campaign-status ${statusClass}">${campaign.status}</span>
+          </div>
+
+          <div class="campaign-card-body">
+            <div class="campaign-card-left">
+              <div class="metrics-row">
+                <div class="metric">
+                  <div class="metric-label">Daily Budget</div>
+                  <div class="metric-value">${formatMoneyWhole(campaign.dailyBudget, currencyCode)}</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-label">Avg. Spend (3 days)</div>
+                  <div class="metric-value">${formatMoney(campaign.dailySpend, currencyCode)}</div>
+                </div>
+                <div class="metric">
+                  <div class="metric-label">Current Bid</div>
+                  <div class="metric-value">${formatMoney(campaign.currentBid, currencyCode)}</div>
+                </div>
+              </div>
+              <div class="spend-bar-container">
+                <div class="spend-bar-label">
+                  <span>Budget Utilization</span>
+                  <span>${campaign.spendPercentage}%</span>
+                </div>
+                <div class="spend-bar">
+                  <div class="spend-bar-fill ${spendClass}"
+                       style="width: ${Math.min(campaign.spendPercentage, 100)}%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="campaign-card-right">
+              ${recommendationHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateOptimizationPillCounts() {
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const optAvailableCount = allCampaigns.filter(c => c.recommendation && !recentlyOptimized.has(String(c.id))).length;
+      const optimizedCount = allCampaigns.filter(c => !c.recommendation || recentlyOptimized.has(String(c.id))).length;
+      const pills = document.querySelectorAll('.optimization-filter-pills button');
+      if (pills.length >= 3) {
+        pills[0].textContent = `Optimization available (${optAvailableCount})`;
+        pills[1].textContent = `Optimized (${optimizedCount})`;
+        pills[2].textContent = `All (${allCampaigns.length})`;
+      }
+    }
+
+    function updateUIAfterBidApply(campaignId) {
+      const content = document.getElementById('content');
+      const card = content.querySelector(`[data-campaign-id="${campaignId}"]`);
+      if (!card) return;
+
+      if (currentOptimizationFilter === 'OPTIMIZATION_AVAILABLE') {
+        card.remove();
+      } else if (currentOptimizationFilter === 'ALL') {
+        const rightEl = card.querySelector('.campaign-card-right');
+        if (rightEl) rightEl.innerHTML = getWaitingRecommendationHtml(campaignId);
+        const grid = card.closest('.campaigns-grid');
+        const grouped = grid && grid.closest('.campaigns-grouped');
+        if (grouped) {
+          const sections = grouped.querySelectorAll('section.campaign-group');
+          if (sections.length >= 2) {
+            const optimizedGrid = sections[1].querySelector('.campaigns-grid');
+            if (optimizedGrid) {
+              grid.removeChild(card);
+              optimizedGrid.appendChild(card);
+            }
+          }
+        }
+      }
+      updateOptimizationPillCounts();
+      updateAdAccountDropdownStar();
+    }
+
+    function updateUIAfterRevertBid(campaignId) {
+      const content = document.getElementById('content');
+      const card = content.querySelector(`[data-campaign-id="${campaignId}"]`);
+      const campaign = allCampaigns.find(c => String(c.id) === String(campaignId));
+      if (!card || !campaign) return;
+
+      if (currentOptimizationFilter === 'OPTIMIZED') {
+        card.remove();
+      } else if (currentOptimizationFilter === 'ALL') {
+        const newCardHtml = renderCampaignCard(campaign);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = newCardHtml;
+        const newCard = wrapper.firstElementChild;
+        const grid = card.closest('.campaigns-grid');
+        const grouped = grid && grid.closest('.campaigns-grouped');
+        if (grouped && newCard) {
+          const sections = grouped.querySelectorAll('section.campaign-group');
+          if (sections.length >= 2) {
+            const optAvailableGrid = sections[0].querySelector('.campaigns-grid');
+            if (optAvailableGrid) {
+              grid.removeChild(card);
+              optAvailableGrid.insertBefore(newCard, optAvailableGrid.firstChild);
+            }
+          }
+        }
+      }
+      updateOptimizationPillCounts();
+      updateAdAccountDropdownStar();
+    }
+
+    async function applyBid(campaignId, newBid, previousBid, button) {
+      button.disabled = true;
+      button.textContent = 'Applying...';
+
+      try {
+        const response = await fetch(`/api/campaigns/${campaignId}/bid`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newBid, previousBid })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          throw new Error(data.details || data.error);
+        }
+
+        recordBidApplied(campaignId, previousBid);
+        showToast('Bid updated successfully! Campaign moved to Optimized for 48h.', 'success');
+        updateUIAfterBidApply(campaignId);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = 'Apply Recommended Bid';
+        showToast(`Error: ${error.message}`, 'error');
+      }
+    }
+
+    async function applyAllRecommendations() {
+      const btn = document.getElementById('applyAllRecommendationsBtn');
+      const baseFiltered = getBaseFilteredCampaigns();
+      const recentlyOptimized = getRecentlyOptimizedCampaignIds();
+      const withRec = baseFiltered.filter(c => c.recommendation && !recentlyOptimized.has(String(c.id)));
+      if (withRec.length === 0) {
+        showToast('No recommendations to apply.', 'error');
+        return;
+      }
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = `Applying... (0/${withRec.length})`;
+      }
+      let applied = 0;
+      let failed = 0;
+      for (let i = 0; i < withRec.length; i++) {
+        const c = withRec[i];
+        const rec = c.recommendation;
+        const selectedPct = selectedBidAdjustmentByCampaign[c.id] ?? 2;
+        const recommendedBid = rec.action === 'increase'
+          ? Math.round(rec.currentBid * (1 + selectedPct / 100) * 100) / 100
+          : Math.round(rec.currentBid * (1 - selectedPct / 100) * 100) / 100;
+        if (btn) btn.textContent = `Applying... (${i + 1}/${withRec.length})`;
+        try {
+          const response = await fetch(`/api/campaigns/${c.id}/bid`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newBid: recommendedBid, previousBid: rec.currentBid })
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.details || data.error);
+          recordBidApplied(c.id, rec.currentBid);
+          updateUIAfterBidApply(c.id);
+          applied++;
+        } catch (err) {
+          failed++;
+          showToast(`Failed: ${c.name || c.id} — ${err.message}`, 'error');
+        }
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Apply all recommendations';
+      }
+      if (applied > 0) showToast(`Applied ${applied} recommendation${applied !== 1 ? 's' : ''}.${failed ? ` ${failed} failed.` : ''}`, failed ? 'error' : 'success');
+    }
+
+    async function revertBid(campaignId, button) {
+      const entry = getRecentlyOptimizedEntry(campaignId);
+      if (!entry || typeof entry.previousBid !== 'number') {
+        showToast('Cannot revert: previous bid not stored.', 'error');
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Reverting...';
+
+      try {
+        const response = await fetch(`/api/campaigns/${campaignId}/bid`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newBid: entry.previousBid, revert: true })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          throw new Error(data.details || data.error);
+        }
+
+        removeFromRecentlyOptimized(campaignId);
+        showToast('Bid reverted to previous value.', 'success');
+        updateUIAfterRevertBid(campaignId);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = 'Revert bid adjustment';
+        showToast(`Error: ${error.message}`, 'error');
+      }
+    }
+
+    function showToast(message, type) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast toast-${type} show`;
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    // Check auth on page load
+    checkAuth();
+  </script>
+</body>
+</html>
