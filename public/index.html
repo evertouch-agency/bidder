@@ -727,6 +727,29 @@
       color: white;
     }
 
+    .bid-adjustment-custom-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .bid-adjustment-custom-input {
+      width: 72px;
+      padding: 6px 8px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: right;
+    }
+    .bid-adjustment-custom-input:focus {
+      outline: none;
+      border-color: #0a66c2;
+    }
+    .bid-adjustment-custom-suffix {
+      font-size: 13px;
+      color: #666;
+    }
+
     .bid-change {
       display: flex;
       align-items: center;
@@ -1354,9 +1377,24 @@
     let campaignSearchQuery = '';
     let currentOptimizationFilter = 'OPTIMIZATION_AVAILABLE';
     const selectedBidAdjustmentByCampaign = {};
+    const customBidAmountByCampaign = {};
 
     function setBidAdjustmentForCampaign(campaignId, pct) {
       selectedBidAdjustmentByCampaign[campaignId] = pct;
+      const container = document.getElementById('campaigns-grid-container');
+      if (container) {
+        const baseFiltered = getBaseFilteredCampaigns();
+        const filtered = getFilteredCampaigns();
+        const gridHtml = currentOptimizationFilter === 'ALL'
+          ? getCampaignsGridHtmlGrouped(baseFiltered)
+          : getCampaignsGridHtml(filtered);
+        container.innerHTML = gridHtml;
+      }
+    }
+    function setBidAdjustmentCustomAmount(campaignId, value) {
+      const n = parseFloat(String(value).replace(',', '.'));
+      if (!Number.isFinite(n) || n < 0) return;
+      customBidAmountByCampaign[campaignId] = Math.round(n * 100) / 100;
       const container = document.getElementById('campaigns-grid-container');
       if (container) {
         const baseFiltered = getBaseFilteredCampaigns();
@@ -1561,12 +1599,18 @@
         const rec = campaign.recommendation;
         const isIncrease = rec.action === 'increase';
         const selectedPct = selectedBidAdjustmentByCampaign[campaign.id] ?? 2;
-        const recommendedBid = isIncrease
-          ? Math.round(rec.currentBid * (1 + selectedPct / 100) * 100) / 100
-          : Math.round(rec.currentBid * (1 - selectedPct / 100) * 100) / 100;
+        const isCustom = selectedPct === 'custom';
+        const defaultRecommended = rec.recommendedBid != null ? rec.recommendedBid : (isIncrease ? rec.currentBid * 1.02 : rec.currentBid * 0.98);
+        const recommendedBid = isCustom
+          ? (customBidAmountByCampaign[campaign.id] != null ? customBidAmountByCampaign[campaign.id] : Math.round(defaultRecommended * 100) / 100)
+          : (isIncrease
+            ? Math.round(rec.currentBid * (1 + selectedPct / 100) * 100) / 100
+            : Math.round(rec.currentBid * (1 - selectedPct / 100) * 100) / 100);
         const pct2Active = selectedPct === 2 ? 'active' : '';
         const pct5Active = selectedPct === 5 ? 'active' : '';
         const pct10Active = selectedPct === 10 ? 'active' : '';
+        const pctCustomActive = isCustom ? 'active' : '';
+        const customInputValue = isCustom ? recommendedBid : Math.round(defaultRecommended * 100) / 100;
         recommendationHtml = `
           <div class="recommendation recommendation-${rec.action}">
             <div class="recommendation-header">
@@ -1574,7 +1618,7 @@
                 ${isIncrease ? '+' : '-'}
               </div>
               <span class="recommendation-title">
-                ${isIncrease ? 'Increase' : 'Decrease'} Bid by ${selectedPct}%${selectedPct === 2 ? ' (recommended)' : ''}
+                ${isCustom ? 'Custom bid amount' : (isIncrease ? 'Increase' : 'Decrease') + ' Bid by ' + selectedPct + '%' + (selectedPct === 2 ? ' (recommended)' : '')}
               </span>
             </div>
             <p class="recommendation-reason">${rec.reason}</p>
@@ -1584,6 +1628,10 @@
                 <button type="button" class="bid-adjustment-pill ${pct2Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 2)" title="Recommended">2%</button>
                 <button type="button" class="bid-adjustment-pill ${pct5Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 5)">5%</button>
                 <button type="button" class="bid-adjustment-pill ${pct10Active}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 10)">10%</button>
+                <span class="bid-adjustment-custom-wrap">
+                  <button type="button" class="bid-adjustment-pill ${pctCustomActive}" onclick="setBidAdjustmentForCampaign('${campaign.id}', 'custom')">Custom</button>
+                  ${isCustom ? `<input type="number" class="bid-adjustment-custom-input" min="0" step="0.01" value="${customInputValue}" placeholder="Bid amount" onchange="setBidAdjustmentCustomAmount('${campaign.id}', this.value)" />` : ''}
+                </span>
               </div>
             </div>
             <div class="bid-change">
@@ -1593,14 +1641,14 @@
               </div>
               <span class="bid-arrow">→</span>
               <div class="bid-box">
-                <div class="bid-box-label">${selectedPct === 2 ? 'Recommended Bid' : 'New Bid'}</div>
-                <div class="bid-box-value" style="color: ${isIncrease ? '#2196f3' : '#ff9800'}">
+                <div class="bid-box-label">${isCustom ? 'New Bid' : (selectedPct === 2 ? 'Recommended Bid' : 'New Bid')}</div>
+                <div class="bid-box-value" style="color: ${isIncrease || isCustom ? '#2196f3' : '#ff9800'}">
                   ${formatMoney(recommendedBid, currencyCode)}
                 </div>
               </div>
             </div>
             <button class="apply-btn" onclick="applyBid('${campaign.id}', ${recommendedBid}, ${rec.currentBid}, this)">
-              ${selectedPct === 2 ? 'Apply Recommended Bid' : 'Apply New Bid'}
+              ${isCustom ? 'Apply Custom Bid' : (selectedPct === 2 ? 'Apply Recommended Bid' : 'Apply New Bid')}
             </button>
           </div>
         `;
@@ -1775,9 +1823,16 @@
         const c = withRec[i];
         const rec = c.recommendation;
         const selectedPct = selectedBidAdjustmentByCampaign[c.id] ?? 2;
-        const recommendedBid = rec.action === 'increase'
-          ? Math.round(rec.currentBid * (1 + selectedPct / 100) * 100) / 100
-          : Math.round(rec.currentBid * (1 - selectedPct / 100) * 100) / 100;
+        let recommendedBid;
+        if (selectedPct === 'custom' && customBidAmountByCampaign[c.id] != null) {
+          recommendedBid = customBidAmountByCampaign[c.id];
+        } else {
+          const pct = typeof selectedPct === 'number' ? selectedPct : 2;
+          recommendedBid = rec.action === 'increase'
+            ? Math.round(rec.currentBid * (1 + pct / 100) * 100) / 100
+            : Math.round(rec.currentBid * (1 - pct / 100) * 100) / 100;
+        }
+        recommendedBid = Math.round((recommendedBid || rec.currentBid) * 100) / 100;
         if (btn) btn.textContent = `Applying... (${i + 1}/${withRec.length})`;
         try {
           const response = await fetch(`/api/campaigns/${c.id}/bid`, {

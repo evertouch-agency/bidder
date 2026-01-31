@@ -239,17 +239,17 @@ async function getRecentlyOptimizedFromDb(adAccountId) {
 
 async function recordRecentlyOptimizedInDb(adAccountId, campaignId, previousBid) {
   if (!supabase || !adAccountId || !campaignId) return;
-  const { error } = await supabase
+  await supabase
     .from('recently_optimized')
-    .upsert(
-      {
-        ad_account_id: String(adAccountId),
-        campaign_id: String(campaignId),
-        applied_at: new Date().toISOString(),
-        previous_bid: previousBid != null ? Number(previousBid) : null
-      },
-      { onConflict: ['ad_account_id', 'campaign_id'] }
-    );
+    .delete()
+    .eq('ad_account_id', String(adAccountId))
+    .eq('campaign_id', String(campaignId));
+  const { error } = await supabase.from('recently_optimized').insert({
+    ad_account_id: String(adAccountId),
+    campaign_id: String(campaignId),
+    applied_at: new Date().toISOString(),
+    previous_bid: previousBid != null ? Number(previousBid) : null
+  });
   if (error) console.error('Error recording recently_optimized in Supabase:', error.message);
 }
 
