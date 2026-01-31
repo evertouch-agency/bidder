@@ -843,6 +843,7 @@
         </div>
         <button class="refresh-btn" onclick="loadAnalysis()">Refresh Data</button>
         <button class="settings-btn" id="settingsBtn" onclick="showSettingsPage()">Settings</button>
+        <a href="/auth/logout" class="logout-btn" style="text-decoration:none;display:inline-flex;align-items:center;">Log out</a>
       </div>
     </header>
 
@@ -857,7 +858,7 @@
   <div id="toast" class="toast"></div>
 
   <script>
-    // Check auth status on load
+    // Check auth status on load (no account selection page: first ad account is auto-selected)
     async function checkAuth() {
       try {
         const response = await fetch('/api/auth/status');
@@ -865,12 +866,33 @@
 
         if (!authenticated) {
           showLoginScreen();
-        } else if (!hasAdAccount) {
-          window.location.href = '/select-account.html';
-        } else {
-          document.getElementById('headerButtons').style.display = 'flex';
-          await loadAdAccountDropdown(currentAdAccountId);
+          return;
+        }
+
+        document.getElementById('headerButtons').style.display = 'flex';
+        const accountIdToUse = hasAdAccount ? currentAdAccountId : null;
+        await loadAdAccountDropdown(accountIdToUse);
+
+        if (!hasAdAccount && selectedAccountId) {
+          try {
+            await fetch('/api/ad-accounts/select', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accountId: selectedAccountId })
+            });
+          } catch (e) {
+            console.error('Failed to select first ad account', e);
+          }
+        }
+
+        if (selectedAccountId) {
           loadAnalysis();
+        } else {
+          document.getElementById('content').innerHTML = `
+            <div class="no-campaigns">
+              <h3>No ad accounts</h3>
+              <p>Your LinkedIn Ads account has no ad accounts available.</p>
+            </div>`;
         }
       } catch (error) {
         showLoginScreen();

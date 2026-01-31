@@ -38,6 +38,13 @@ app.get('/api/auth/status', (req, res) => {
   });
 });
 
+// Log out - clear in-memory token and redirect to app (client will show login)
+app.get('/auth/logout', (req, res) => {
+  accessToken = null;
+  adAccountId = null;
+  res.redirect('/');
+});
+
 // Start OAuth flow - redirect to LinkedIn
 app.get('/auth/login', (req, res) => {
   const scopes = 'r_ads,r_ads_reporting,rw_ads';
@@ -97,8 +104,8 @@ app.get('/auth/callback', async (req, res) => {
 
     console.log('Access token saved!');
 
-    // Redirect to ad account selection
-    res.redirect('/select-account.html');
+    // Redirect to app (main page auto-selects first ad account when none set)
+    res.redirect('/');
   } catch (error) {
     console.error('Token exchange error:', error.response?.data || error.message);
     res.send(`
