@@ -314,6 +314,25 @@ app.get('/api/settings/accounts', async (req, res) => {
   }
 });
 
+// DELETE /api/account — delete all stored data (settings + 48h window)
+app.delete('/api/account', async (req, res) => {
+  try {
+    if (supabase) {
+      const { error: errSettings } = await supabase.from('app_settings').delete().eq('id', APP_SETTINGS_ID);
+      if (errSettings) console.error('Error deleting app_settings:', errSettings.message);
+      const { error: errRecent } = await supabase.from('recently_optimized').delete().gte('applied_at', '1970-01-01T00:00:00Z');
+      if (errRecent) console.error('Error deleting recently_optimized:', errRecent.message);
+    }
+    if (fs.existsSync(SELECTED_ACCOUNTS_PATH)) {
+      fs.unlinkSync(SELECTED_ACCOUNTS_PATH);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Error deleting account data:', e.message);
+    res.status(500).json({ error: 'Failed to delete account data', details: e.message });
+  }
+});
+
 // Set the active ad account
 app.post('/api/ad-accounts/select', (req, res) => {
   const { accountId } = req.body;

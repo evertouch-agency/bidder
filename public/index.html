@@ -42,9 +42,17 @@
     .header-logo {
       color: inherit;
       text-decoration: none;
+      display: inline-flex;
+      align-items: center;
     }
     .header-logo:hover {
-      text-decoration: underline;
+      opacity: 0.9;
+    }
+    .header-logo img {
+      height: 20px;
+      width: auto;
+      display: block;
+      vertical-align: middle;
     }
 
     .header-buttons {
@@ -463,6 +471,42 @@
       text-decoration: underline;
     }
 
+    .settings-danger-zone {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #e0e0e0;
+    }
+    .settings-danger-zone h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #8b0000;
+      margin: 0 0 8px 0;
+    }
+    .settings-danger-zone p {
+      font-size: 14px;
+      color: #666;
+      margin: 0 0 12px 0;
+    }
+    .settings-delete-btn {
+      padding: 10px 20px;
+      border: 1px solid #b00;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #fff;
+      color: #8b0000;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .settings-delete-btn:hover:not(:disabled) {
+      background: #8b0000;
+      color: #fff;
+    }
+    .settings-delete-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     .group-heading {
       font-size: 16px;
       font-weight: 600;
@@ -832,7 +876,7 @@
 <body>
   <div class="container">
     <header>
-      <h1><a href="#" class="header-logo" id="headerLogo" title="Campaigns">Bidder</a></h1>
+      <h1><a href="#" class="header-logo" id="headerLogo" title="Campaigns"><img src="/logo.svg" alt="Bidder"></a></h1>
       <div class="header-buttons" id="headerButtons" style="display: none;">
         <div class="ad-account-dropdown" id="adAccountDropdown">
           <button type="button" class="ad-account-trigger" id="adAccountTrigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Ad account">
@@ -958,6 +1002,11 @@
               <button type="button" class="settings-save-btn" id="settingsSaveBtn" onclick="saveSettingsAccounts()">Save</button>
               <a href="#" class="settings-back-link" onclick="event.preventDefault(); showCampaignsView(); return false;">← Back to campaigns</a>
             </div>
+            <div class="settings-danger-zone">
+              <h3>Delete account and all data</h3>
+              <p>Permanently delete your Bidder account. Your LinkedIn account is not affected. You can sign up again to Bidder any time.</p>
+              <button type="button" class="settings-delete-btn" id="settingsDeleteBtn" onclick="deleteAccountAndData()">Delete account data</button>
+            </div>
           </div>`;
       } catch (e) {
         content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(e.message)}</p></div>`;
@@ -983,6 +1032,22 @@
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
         if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+      }
+    }
+
+    async function deleteAccountAndData() {
+      if (!confirm('Delete all your saved data? This will remove your selected accounts and 48h optimization history. Your LinkedIn account is not affected. You can sign in again afterward.')) return;
+      const btn = document.getElementById('settingsDeleteBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
+      try {
+        const response = await fetch('/api/account', { method: 'DELETE' });
+        const data = await response.json();
+        if (data.error) throw new Error(data.details || data.error);
+        try { localStorage.removeItem('bidOptimizerApplied'); } catch (e) {}
+        window.location.href = '/auth/logout';
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Delete account data'; }
       }
     }
 
