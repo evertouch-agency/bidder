@@ -89,8 +89,9 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // Start OAuth flow - redirect to LinkedIn
+// Set LINKEDIN_SCOPES to include "openid profile" for one account per LinkedIn user across localhost and production (requires OpenID Connect product on your LinkedIn app).
 app.get('/auth/login', (req, res) => {
-  const scopes = 'r_ads,r_ads_reporting,rw_ads';
+  const scopes = process.env.LINKEDIN_SCOPES || 'r_ads,r_ads_reporting,rw_ads';
   const state = Math.random().toString(36).substring(7);
 
   const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scopes)}&state=${state}`;
@@ -137,6 +138,7 @@ app.get('/auth/callback', async (req, res) => {
       `);
     }
 
+    // Stable user ID: from OpenID userinfo (same LinkedIn account everywhere) or fallback to hash of token (different per login/env → separate rows in Supabase).
     let linkedinUserId = null;
     try {
       const userinfoRes = await axios.get(`${LINKEDIN_V2_BASE}/userinfo`, {
