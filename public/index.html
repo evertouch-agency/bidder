@@ -928,7 +928,7 @@
     // Check auth status on load (no account selection page: first ad account is auto-selected)
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/status');
+        const response = await fetch('/api/auth/status', { credentials: 'include' });
         const { authenticated, hasAdAccount, currentAdAccountId } = await response.json();
 
         if (!authenticated) {
@@ -1083,7 +1083,7 @@
       try {
         const recentlyOptimizedIds = Array.from(getRecentlyOptimizedCampaignIds());
         const recentQs = recentlyOptimizedIds.length ? '&recentlyOptimized=' + encodeURIComponent(recentlyOptimizedIds.join(',')) : '';
-        const response = await fetch('/api/ad-accounts?includeOptimization=1' + recentQs);
+        const response = await fetch('/api/ad-accounts?includeOptimization=1' + recentQs, { credentials: 'include' });
         const data = await response.json();
         if (data.error) {
           triggerLabel.textContent = 'Error loading accounts';
@@ -1250,10 +1250,23 @@
 
       await loadRecentlyOptimized();
 
+      if (!selectedAccountId) {
+        content.innerHTML = `
+          <div class="no-campaigns">
+            <h3>No ad account selected</h3>
+            <p>Select an ad account from the dropdown above.</p>
+          </div>`;
+        return;
+      }
+
       try {
-        const response = await fetch('/api/spend-analysis?bidAdjustmentPercent=2');
+        const response = await fetch('/api/spend-analysis?bidAdjustmentPercent=2&adAccountId=' + encodeURIComponent(selectedAccountId), { credentials: 'include' });
         const data = await response.json();
 
+        if (response.status === 401) {
+          window.location.href = '/auth/login';
+          return;
+        }
         if (data.error) {
           throw new Error(data.details || data.error);
         }
@@ -1262,7 +1275,8 @@
           content.innerHTML = `
             <div class="no-campaigns">
               <h3>No (active) Campaigns Found</h3>
-              <p>Make sure you have (active) campaigns in your LinkedIn Ads account.</p>
+              <p>Make sure you have (active) campaigns in your LinkedIn Ads account for the selected ad account.</p>
+              <p style="margin-top: 10px; font-size: 13px; color: #666;">If you do have campaigns, try signing out and signing in again. Check the server terminal for details.</p>
             </div>
           `;
           return;
@@ -1298,7 +1312,7 @@
         return;
       }
       try {
-        const response = await fetch('/api/recently-optimized?adAccountId=' + encodeURIComponent(selectedAccountId));
+        const response = await fetch('/api/recently-optimized?adAccountId=' + encodeURIComponent(selectedAccountId), { credentials: 'include' });
         const data = await response.json();
         const useServer = !!data.useServer;
         recentlyOptimizedCache = {
@@ -1785,7 +1799,8 @@
         const response = await fetch(`/api/campaigns/${campaignId}/bid`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newBid, previousBid })
+          body: JSON.stringify({ newBid, previousBid, adAccountId: selectedAccountId }),
+          credentials: 'include'
         });
 
         const data = await response.json();
@@ -1838,7 +1853,8 @@
           const response = await fetch(`/api/campaigns/${c.id}/bid`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newBid: recommendedBid, previousBid: rec.currentBid })
+            body: JSON.stringify({ newBid: recommendedBid, previousBid: rec.currentBid, adAccountId: selectedAccountId }),
+            credentials: 'include'
           });
           const data = await response.json();
           if (data.error) throw new Error(data.details || data.error);
@@ -1870,7 +1886,8 @@
         const response = await fetch(`/api/campaigns/${campaignId}/bid`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newBid: entry.previousBid, revert: true })
+          body: JSON.stringify({ newBid: entry.previousBid, revert: true, adAccountId: selectedAccountId }),
+          credentials: 'include'
         });
 
         const data = await response.json();

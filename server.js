@@ -3,45 +3,88 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static('public'));
 
 const LINKEDIN_API_BASE = 'https://api.linkedin.com/rest';
+const LINKEDIN_V2_BASE = 'https://api.linkedin.com/v2';
 const CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
 // For deployment: set BASE_URL to your public URL (e.g. https://your-app.railway.app). No trailing slash.
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const REDIRECT_URI = `${BASE_URL}/auth/callback`;
 
-// Store tokens in memory (in production, use a database)
-let accessToken = process.env.LINKEDIN_ACCESS_TOKEN;
-let adAccountId = process.env.LINKEDIN_AD_ACCOUNT_ID;
+const JWT_SECRET = process.env.JWT_SECRET;
+const AUTH_COOKIE = 'auth';
+const COOKIE_OPTS = { httpOnly: true, secure: BASE_URL.startsWith('https'), sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 };
 
-// LinkedIn API headers
-const getHeaders = () => ({
-  'Authorization': `Bearer ${accessToken}`,
-  'X-Restli-Protocol-Version': '2.0.0',
-  'LinkedIn-Version': '202504',
-  'Content-Type': 'application/json'
-});
+const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  : null;
+const multiUser = !!(supabase && JWT_SECRET);
 
-// Check if authenticated
+// LinkedIn API headers — use req.user when authenticated
+function getHeaders(req) {
+  const token = multiUser && req && req.user ? req.user.access_token : null;
+  return {
+    'Authorization': `Bearer ${token}`,
+    'X-Restli-Protocol-Version': '2.0.0',
+    'LinkedIn-Version': '202504',
+    'Content-Type': 'application/json'
+  };
+}
+
+// Current ad account comes from the request (query, body, or header); not stored per user.
+function getAdAccountId(req) {
+  if (!req) return null;
+  const raw = req.query?.adAccountId ?? req.body?.adAccountId ?? (req.get && req.get('x-ad-account-id')) ?? null;
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // LinkedIn REST path expects numeric ID; strip URN prefix if present
+  if (s.startsWith('urn:li:sponsoredAccount:')) return s.slice('urn:li:sponsoredAccount:'.length);
+  return s;
+}
+
+async function loadUserFromToken(req, res, next) {
+  req.user = null;
+  if (!multiUser) return next();
+  const token = req.cookies[AUTH_COOKIE];
+  if (!token) return next();
+  try {
+    const { userId } = jwt.verify(token, JWT_SECRET);
+    const { data, error } = await supabase.from('users').select('id, access_token').eq('id', userId).single();
+    if (!error && data) req.user = { id: data.id, access_token: data.access_token };
+  } catch (e) {}
+  next();
+}
+
+app.use(loadUserFromToken);
+
+function requireAuth(req, res, next) {
+  if (multiUser && !req.user) return res.status(401).json({ error: 'Not authenticated' });
+  next();
+}
+
+// Check if authenticated (current ad account is not stored; frontend sends it per request)
 app.get('/api/auth/status', (req, res) => {
-  const hasAdAccount = adAccountId && adAccountId !== 'your_ad_account_id_here';
   res.json({
-    authenticated: accessToken && accessToken !== 'your_access_token_here',
-    hasAdAccount,
-    currentAdAccountId: hasAdAccount ? adAccountId : null
+    authenticated: !!req.user,
+    hasAdAccount: false,
+    currentAdAccountId: null
   });
 });
 
-// Log out - clear in-memory token and redirect to app (client will show login)
+// Log out — clear auth cookie
 app.get('/auth/logout', (req, res) => {
-  accessToken = null;
-  adAccountId = null;
+  res.clearCookie(AUTH_COOKIE);
   res.redirect('/');
 });
 
@@ -55,7 +98,7 @@ app.get('/auth/login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// OAuth callback - exchange code for token
+// OAuth callback - exchange code for token; multi-user: create/update user, set JWT cookie
 app.get('/auth/callback', async (req, res) => {
   const { code, error, error_description } = req.query;
 
@@ -70,12 +113,11 @@ app.get('/auth/callback', async (req, res) => {
   }
 
   try {
-    // Exchange code for access token
     const tokenResponse = await axios.post(
       'https://www.linkedin.com/oauth/v2/accessToken',
       new URLSearchParams({
         grant_type: 'authorization_code',
-        code: code,
+        code,
         redirect_uri: REDIRECT_URI,
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET
@@ -83,35 +125,55 @@ app.get('/auth/callback', async (req, res) => {
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
 
-    accessToken = tokenResponse.data.access_token;
+    const newAccessToken = tokenResponse.data.access_token;
 
-    // Save token to .env file for persistence
-    const envPath = path.join(__dirname, '.env');
-    const envExamplePath = path.join(__dirname, '.env.example');
-    let envContent;
-    if (fs.existsSync(envPath)) {
-      envContent = fs.readFileSync(envPath, 'utf8');
-    } else {
-      envContent = fs.existsSync(envExamplePath)
-        ? fs.readFileSync(envExamplePath, 'utf8')
-        : '';
+    if (!multiUser) {
+      return res.send(`
+        <html><body style="font-family: sans-serif; padding: 40px; text-align: center;">
+          <h2>Auth not configured</h2>
+          <p>Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and JWT_SECRET for multi-user login.</p>
+          <a href="/">Go Back</a>
+        </body></html>
+      `);
     }
-    envContent = envContent.replace(
-      /LINKEDIN_ACCESS_TOKEN=.*/,
-      `LINKEDIN_ACCESS_TOKEN=${accessToken}`
-    );
-    fs.writeFileSync(envPath, envContent);
 
-    console.log('Access token saved!');
+    let linkedinUserId = null;
+    try {
+      const userinfoRes = await axios.get(`${LINKEDIN_V2_BASE}/userinfo`, {
+        headers: { Authorization: `Bearer ${newAccessToken}` }
+      });
+      linkedinUserId = userinfoRes?.data?.sub || userinfoRes?.data?.id || null;
+    } catch (e) {
+      linkedinUserId = 'token_' + crypto.createHash('sha256').update(newAccessToken).digest('hex').slice(0, 32);
+    }
+    if (!linkedinUserId) linkedinUserId = 'token_' + crypto.createHash('sha256').update(newAccessToken).digest('hex').slice(0, 32);
 
-    // Redirect to app (main page auto-selects first ad account when none set)
+      const { data: existing } = await supabase.from('users').select('id').eq('linkedin_user_id', linkedinUserId).single();
+      let userId;
+      if (existing) {
+        await supabase.from('users').update({
+          access_token: newAccessToken,
+          updated_at: new Date().toISOString()
+        }).eq('id', existing.id);
+        userId = existing.id;
+      } else {
+        const { data: inserted, error: insertErr } = await supabase.from('users').insert({
+          linkedin_user_id: linkedinUserId,
+          access_token: newAccessToken
+        }).select('id').single();
+      if (insertErr) throw insertErr;
+      userId = inserted.id;
+    }
+
+    const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie(AUTH_COOKIE, token, COOKIE_OPTS);
     res.redirect('/');
-  } catch (error) {
-    console.error('Token exchange error:', error.response?.data || error.message);
+  } catch (err) {
+    console.error('Auth callback error:', err.response?.data || err.message);
     res.send(`
       <html><body style="font-family: sans-serif; padding: 40px; text-align: center;">
         <h2>Authentication Failed</h2>
-        <p>${error.response?.data?.error_description || error.message}</p>
+        <p>${err.response?.data?.error_description || err.message}</p>
         <a href="/">Go Back</a>
       </body></html>
     `);
@@ -120,15 +182,15 @@ app.get('/auth/callback', async (req, res) => {
 
 // Get ad accounts for the user; ?includeOptimization=1 adds hasOptimization per account.
 // Only returns accounts that are selected for optimization (settings), unless no selection saved yet.
-app.get('/api/ad-accounts', async (req, res) => {
+app.get('/api/ad-accounts', requireAuth, async (req, res) => {
   try {
     const response = await axios.get(
       `${LINKEDIN_API_BASE}/adAccounts?q=search`,
-      { headers: getHeaders() }
+      { headers: getHeaders(req) }
     );
 
     let accounts = response.data.elements || [];
-    const selectedIds = await readSelectedAccountIds();
+    const selectedIds = await readSelectedAccountIds(req);
     if (selectedIds !== null) {
       const set = new Set(selectedIds.map(id => String(id)));
       accounts = accounts.filter(acc => set.has(String(acc.id)));
@@ -139,9 +201,9 @@ app.get('/api/ad-accounts', async (req, res) => {
         : [];
       const withStatus = await Promise.all(accounts.map(async (acc) => {
         const excludeIds = supabase
-          ? (await getRecentlyOptimizedFromDb(acc.id)).map((e) => e.campaignId)
+          ? (await getRecentlyOptimizedFromDb(req, acc.id)).map((e) => e.campaignId)
           : recentFromQuery;
-        const hasOptimization = await getAccountOptimizationStatus(acc.id, { excludeCampaignIds: excludeIds }).catch(() => false);
+        const hasOptimization = await getAccountOptimizationStatus(req, acc.id, { excludeCampaignIds: excludeIds }).catch(() => false);
         return { ...acc, hasOptimization };
       }));
       accounts = withStatus;
@@ -157,20 +219,15 @@ app.get('/api/ad-accounts', async (req, res) => {
 });
 
 // Selected accounts for optimization (only these show in account dropdown).
-// Uses Supabase if SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are set; otherwise a local JSON file.
 const SELECTED_ACCOUNTS_PATH = path.join(__dirname, 'selected-accounts.json');
-const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-  : null;
-const APP_SETTINGS_ID = 'default';
 
-async function readSelectedAccountIds() {
-  if (supabase) {
+async function readSelectedAccountIds(req) {
+  if (supabase && req && req.user) {
     try {
       const { data, error } = await supabase
         .from('app_settings')
         .select('selected_account_ids')
-        .eq('id', APP_SETTINGS_ID)
+        .eq('user_id', req.user.id)
         .single();
       if (!error && data && data.selected_account_ids != null) return data.selected_account_ids;
       return null;
@@ -187,18 +244,16 @@ async function readSelectedAccountIds() {
   } catch (e) {
     console.error('Error reading selected accounts:', e.message);
   }
-  return null; // null = no filter (show all accounts)
+  return null;
 }
 
-async function writeSelectedAccountIds(selectedIds) {
-  if (supabase) {
+async function writeSelectedAccountIds(req, selectedIds) {
+  if (supabase && req && req.user) {
     try {
-      const { error } = await supabase
-        .from('app_settings')
-        .upsert(
-          { id: APP_SETTINGS_ID, selected_account_ids: selectedIds, updated_at: new Date().toISOString() },
-          { onConflict: 'id' }
-        );
+      const { error } = await supabase.from('app_settings').upsert(
+        { id: req.user.id, user_id: req.user.id, selected_account_ids: selectedIds, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      );
       if (error) throw error;
       return;
     } catch (e) {
@@ -217,15 +272,18 @@ async function writeSelectedAccountIds(selectedIds) {
 // --- Recently optimized (48h window) — stored in Supabase when configured ---
 const RECENTLY_OPTIMIZED_MS = 48 * 60 * 60 * 1000;
 
-async function getRecentlyOptimizedFromDb(adAccountId) {
+async function getRecentlyOptimizedFromDb(req, adAccountId) {
   if (!supabase || !adAccountId) return [];
   const cutoff = new Date(Date.now() - RECENTLY_OPTIMIZED_MS).toISOString();
-  const { data, error } = await supabase
+  let q = supabase
     .from('recently_optimized')
     .select('campaign_id, applied_at, previous_bid')
     .eq('ad_account_id', String(adAccountId))
     .gte('applied_at', cutoff)
     .order('applied_at', { ascending: false });
+  if (req && req.user) q = q.eq('user_id', req.user.id);
+  else return [];
+  const { data, error } = await q;
   if (error) {
     console.error('Error reading recently_optimized from Supabase:', error.message);
     return [];
@@ -237,29 +295,23 @@ async function getRecentlyOptimizedFromDb(adAccountId) {
   }));
 }
 
-async function recordRecentlyOptimizedInDb(adAccountId, campaignId, previousBid) {
-  if (!supabase || !adAccountId || !campaignId) return;
-  await supabase
-    .from('recently_optimized')
-    .delete()
-    .eq('ad_account_id', String(adAccountId))
-    .eq('campaign_id', String(campaignId));
-  const { error } = await supabase.from('recently_optimized').insert({
+async function recordRecentlyOptimizedInDb(req, adAccountId, campaignId, previousBid) {
+  if (!supabase || !adAccountId || !campaignId || !req || !req.user) return;
+  await supabase.from('recently_optimized').delete().eq('ad_account_id', String(adAccountId)).eq('campaign_id', String(campaignId)).eq('user_id', req.user.id);
+  const row = {
     ad_account_id: String(adAccountId),
     campaign_id: String(campaignId),
     applied_at: new Date().toISOString(),
-    previous_bid: previousBid != null ? Number(previousBid) : null
-  });
+    previous_bid: previousBid != null ? Number(previousBid) : null,
+    user_id: req.user.id
+  };
+  const { error } = await supabase.from('recently_optimized').insert(row);
   if (error) console.error('Error recording recently_optimized in Supabase:', error.message);
 }
 
-async function removeRecentlyOptimizedFromDb(adAccountId, campaignId) {
-  if (!supabase || !adAccountId || !campaignId) return;
-  const { error } = await supabase
-    .from('recently_optimized')
-    .delete()
-    .eq('ad_account_id', String(adAccountId))
-    .eq('campaign_id', String(campaignId));
+async function removeRecentlyOptimizedFromDb(req, adAccountId, campaignId) {
+  if (!supabase || !adAccountId || !campaignId || !req || !req.user) return;
+  const { error } = await supabase.from('recently_optimized').delete().eq('ad_account_id', String(adAccountId)).eq('campaign_id', String(campaignId)).eq('user_id', req.user.id);
   if (error) console.error('Error removing from recently_optimized in Supabase:', error.message);
 }
 
@@ -270,13 +322,13 @@ app.get('/api/recently-optimized', async (req, res) => {
     return res.status(400).json({ error: 'adAccountId required' });
   }
   const useServer = !!supabase;
-  const entries = useServer ? await getRecentlyOptimizedFromDb(adAccountId) : [];
+  const entries = useServer ? await getRecentlyOptimizedFromDb(req, adAccountId) : [];
   res.json({ entries, useServer });
 });
 
 // GET /api/settings/selected-accounts — which accounts are enabled for optimization
 app.get('/api/settings/selected-accounts', async (req, res) => {
-  const selectedIds = await readSelectedAccountIds();
+  const selectedIds = await readSelectedAccountIds(req);
   res.json({ selectedIds });
 });
 
@@ -288,7 +340,7 @@ app.put('/api/settings/selected-accounts', async (req, res) => {
   }
   const normalized = selectedIds.map(id => String(id));
   try {
-    await writeSelectedAccountIds(normalized);
+    await writeSelectedAccountIds(req, normalized);
     res.json({ selectedIds: normalized });
   } catch (e) {
     res.status(500).json({ error: 'Failed to save settings', details: e.message });
@@ -300,10 +352,10 @@ app.get('/api/settings/accounts', async (req, res) => {
   try {
     const response = await axios.get(
       `${LINKEDIN_API_BASE}/adAccounts?q=search`,
-      { headers: getHeaders() }
+      { headers: getHeaders(req) }
     );
     const accounts = response.data.elements || [];
-    const selectedIds = await readSelectedAccountIds();
+    const selectedIds = await readSelectedAccountIds(req);
     res.json({ accounts, selectedIds });
   } catch (error) {
     console.error('Error fetching ad accounts for settings:', error.response?.data || error.message);
@@ -314,13 +366,13 @@ app.get('/api/settings/accounts', async (req, res) => {
   }
 });
 
-// DELETE /api/account — delete all stored data (settings + 48h window)
-app.delete('/api/account', async (req, res) => {
+// DELETE /api/account — delete current user's data (settings + 48h window)
+app.delete('/api/account', requireAuth, async (req, res) => {
   try {
-    if (supabase) {
-      const { error: errSettings } = await supabase.from('app_settings').delete().eq('id', APP_SETTINGS_ID);
+    if (supabase && req.user) {
+      const { error: errSettings } = await supabase.from('app_settings').delete().eq('user_id', req.user.id);
       if (errSettings) console.error('Error deleting app_settings:', errSettings.message);
-      const { error: errRecent } = await supabase.from('recently_optimized').delete().gte('applied_at', '1970-01-01T00:00:00Z');
+      const { error: errRecent } = await supabase.from('recently_optimized').delete().eq('user_id', req.user.id);
       if (errRecent) console.error('Error deleting recently_optimized:', errRecent.message);
     }
     if (fs.existsSync(SELECTED_ACCOUNTS_PATH)) {
@@ -333,33 +385,8 @@ app.delete('/api/account', async (req, res) => {
   }
 });
 
-// Set the active ad account
-app.post('/api/ad-accounts/select', (req, res) => {
-  const { accountId } = req.body;
-
-  if (!accountId) {
-    return res.status(400).json({ error: 'Account ID required' });
-  }
-
-  adAccountId = accountId;
-
-  // Save to .env file
-  const envPath = path.join(__dirname, '.env');
-  const envExamplePath = path.join(__dirname, '.env.example');
-  let envContent;
-  if (fs.existsSync(envPath)) {
-    envContent = fs.readFileSync(envPath, 'utf8');
-  } else {
-    envContent = fs.existsSync(envExamplePath)
-      ? fs.readFileSync(envExamplePath, 'utf8')
-      : '';
-  }
-  envContent = envContent.replace(
-    /LINKEDIN_AD_ACCOUNT_ID=.*/,
-    `LINKEDIN_AD_ACCOUNT_ID=${accountId}`
-  );
-  fs.writeFileSync(envPath, envContent);
-
+// Acknowledge ad account selection (current account is not stored; frontend sends it per request)
+app.post('/api/ad-accounts/select', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
@@ -376,11 +403,11 @@ function getCampaignId(campaign) {
 
 // Fetch campaignGroupInfo for one campaign: GET .../adCampaigns/{campaignId}?fields=campaignGroupInfo
 // Returns group status (e.g. 'ACTIVE') or null on error.
-async function getCampaignGroupStatus(accountId, campaignId) {
+async function getCampaignGroupStatus(req, accountId, campaignId) {
   try {
     const url = `${LINKEDIN_API_BASE}/adAccounts/${accountId}/adCampaigns/${campaignId}`;
     const response = await axios.get(url, {
-      headers: getHeaders(),
+      headers: getHeaders(req),
       timeout: REQUEST_TIMEOUT_MS,
       params: { fields: 'campaignGroupInfo' }
     });
@@ -394,7 +421,7 @@ async function getCampaignGroupStatus(accountId, campaignId) {
 }
 
 // Filter campaigns to only those whose campaign group status is ACTIVE (per-campaign GET with fields=campaignGroupInfo).
-async function filterCampaignsByActiveGroup(accountId, campaigns) {
+async function filterCampaignsByActiveGroup(req, accountId, campaigns) {
   if (campaigns.length === 0) return [];
   const BATCH_SIZE = 10;
   const activeIds = new Set();
@@ -403,7 +430,7 @@ async function filterCampaignsByActiveGroup(accountId, campaigns) {
     const results = await Promise.all(
       batch.map(async (c) => {
         const id = getCampaignId(c);
-        const status = await getCampaignGroupStatus(accountId, id);
+        const status = await getCampaignGroupStatus(req, accountId, id);
         return { id, status };
       })
     );
@@ -416,8 +443,15 @@ async function filterCampaignsByActiveGroup(accountId, campaigns) {
 
 // Search for Campaigns API: fetch only ACTIVE campaigns, then keep only those in ACTIVE campaign groups.
 // For each campaign we GET .../adCampaigns/{campaignId}?fields=campaignGroupInfo and check campaignGroupInfo.status === 'ACTIVE'.
-async function fetchAllActiveCampaigns() {
-  const opts = { headers: getHeaders(), timeout: REQUEST_TIMEOUT_MS };
+async function fetchAllActiveCampaigns(req, adAccountId) {
+  const headers = getHeaders(req);
+  if (!headers.Authorization || headers.Authorization === 'Bearer null' || headers.Authorization === 'Bearer undefined') {
+    console.error('fetchAllActiveCampaigns: no valid token (req.user?', !!req?.user, ')');
+    const err = new Error('No valid session');
+    err.status = 401;
+    throw err;
+  }
+  const opts = { headers, timeout: REQUEST_TIMEOUT_MS };
   const baseUrl = `${LINKEDIN_API_BASE}/adAccounts/${adAccountId}/adCampaigns`;
   const pageSize = 500;
   const maxPages = 50;
@@ -446,27 +480,49 @@ async function fetchAllActiveCampaigns() {
     }
 
     if (all.length > 0) {
-      return await filterCampaignsByActiveGroup(adAccountId, all);
+      const filtered = await filterCampaignsByActiveGroup(req, adAccountId, all);
+      if (filtered.length === 0) {
+        console.log('fetchAllActiveCampaigns: all', all.length, 'filtered to 0 (campaign group not ACTIVE), returning unfiltered');
+        return all;
+      }
+      return filtered;
     }
   } catch (e) {
-    if (e.response?.status === 400) {
-      console.log('Search API returned 400:', e.response?.data?.message || e.message);
+    const status = e.response?.status;
+    const msg = e.response?.data?.message || e.response?.data?.error_description || e.message;
+    console.error('fetchAllActiveCampaigns: LinkedIn error', status, msg || e.response?.data);
+    if (status === 401 || status === 403) {
+      throw e;
+    }
+    if (status === 400) {
+      console.log('Search API returned 400, trying fallback:', msg || e.message);
     } else {
       throw e;
     }
   }
 
   // Fallback: one page, no filter
-  const response = await axios.get(baseUrl, { ...opts, params: { q: 'search' } });
-  const raw = response.data.elements || [];
-  const active = raw.filter(c => (c.status || '').toUpperCase() === 'ACTIVE');
-  const candidates = active.length > 0 ? active : raw;
-  return await filterCampaignsByActiveGroup(adAccountId, candidates);
+  try {
+    const response = await axios.get(baseUrl, { ...opts, params: { q: 'search' } });
+    const raw = response.data.elements || [];
+    console.log('fetchAllActiveCampaigns: fallback page elements', raw.length);
+    const active = raw.filter(c => (c.status || '').toUpperCase() === 'ACTIVE');
+    const candidates = active.length > 0 ? active : raw;
+    const filtered = await filterCampaignsByActiveGroup(req, adAccountId, candidates);
+    if (filtered.length === 0 && candidates.length > 0) {
+      console.log('fetchAllActiveCampaigns: fallback filtered to 0, returning unfiltered');
+      return candidates;
+    }
+    return filtered;
+  } catch (e) {
+    console.error('fetchAllActiveCampaigns: fallback failed', e.response?.status, e.response?.data?.message || e.message);
+    throw e;
+  }
 }
 
 // Fetch active campaigns for a specific account (for optimization status); only in ACTIVE campaign groups.
-async function fetchActiveCampaignsForAccount(accountId) {
-  const opts = { headers: getHeaders(), timeout: REQUEST_TIMEOUT_MS };
+async function fetchActiveCampaignsForAccount(req, accountId) {
+  const opts = { headers: getHeaders(req), timeout: REQUEST_TIMEOUT_MS };
   const baseUrl = `${LINKEDIN_API_BASE}/adAccounts/${accountId}/adCampaigns`;
   const searchParam = '(status:(values:List(ACTIVE)))';
   try {
@@ -477,15 +533,15 @@ async function fetchActiveCampaignsForAccount(accountId) {
     const raw = response.data.elements || [];
     const active = raw.filter(c => (c.status || '').toUpperCase() === 'ACTIVE');
     const candidates = active.length > 0 ? active : raw;
-    return await filterCampaignsByActiveGroup(accountId, candidates);
+    return await filterCampaignsByActiveGroup(req, accountId, candidates);
   } catch (e) {
     return [];
   }
 }
 
 // Run spend analysis for a given account; returns analysis array (used for optimization flag).
-async function runSpendAnalysisForAccount(accountId, bidAdjustmentPercent = 2) {
-  const campaigns = await fetchActiveCampaignsForAccount(accountId);
+async function runSpendAnalysisForAccount(req, accountId, bidAdjustmentPercent = 2) {
+  const campaigns = await fetchActiveCampaignsForAccount(req, accountId);
   const getCampaignId = (c) => {
     const raw = c.id ?? c.$URN ?? c;
     if (typeof raw === 'number') return raw;
@@ -495,16 +551,18 @@ async function runSpendAnalysisForAccount(accountId, bidAdjustmentPercent = 2) {
   const campaignsWithId = campaigns.map(c => ({ ...c, _normalizedId: getCampaignId(c) }));
   const today = new Date();
   let analyticsData = {};
-  if (campaignsWithId.length > 0) {
+  if (campaignsWithId.length > 0 && req) {
     try {
       const BATCH_SIZE = 10;
       const timeoutMs = 10000;
       const DAYS_IN_RANGE = 3;
-      const headers = getHeaders();
+      const headers = getHeaders(req);
       const accountUrn = `urn:li:sponsoredAccount:${accountId}`;
       const accountsParam = `List(${encodeURIComponent(accountUrn)})`;
+      // Last 3 complete full days (yesterday and the two days before; exclude today)
       const endDate = new Date(today);
-      const startDate = new Date(today);
+      endDate.setDate(endDate.getDate() - 1);
+      const startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - (DAYS_IN_RANGE - 1));
       const dateRangeVal = `(start:(year:${startDate.getFullYear()},month:${startDate.getMonth() + 1},day:${startDate.getDate()}),end:(year:${endDate.getFullYear()},month:${endDate.getMonth() + 1},day:${endDate.getDate()}))`;
       for (let i = 0; i < campaignsWithId.length; i += BATCH_SIZE) {
@@ -548,8 +606,8 @@ async function runSpendAnalysisForAccount(accountId, bidAdjustmentPercent = 2) {
   });
 }
 
-async function getAccountOptimizationStatus(accountId, options = {}) {
-  const analysis = await runSpendAnalysisForAccount(accountId).catch(() => []);
+async function getAccountOptimizationStatus(req, accountId, options = {}) {
+  const analysis = await runSpendAnalysisForAccount(req, accountId).catch(() => []);
   let filtered = analysis;
   const excludeIds = options.excludeCampaignIds;
   if (excludeIds && excludeIds.length > 0) {
@@ -560,10 +618,10 @@ async function getAccountOptimizationStatus(accountId, options = {}) {
 }
 
 // General campaign list (one page, no filter) for /api/campaigns
-async function fetchAllCampaigns() {
+async function fetchAllCampaigns(req, adAccountId) {
   const url = `${LINKEDIN_API_BASE}/adAccounts/${adAccountId}/adCampaigns`;
   const response = await axios.get(url, {
-    headers: getHeaders(),
+    headers: getHeaders(req),
     timeout: REQUEST_TIMEOUT_MS,
     params: { q: 'search' }
   });
@@ -573,7 +631,9 @@ async function fetchAllCampaigns() {
 // Get all campaigns for the ad account
 app.get('/api/campaigns', async (req, res) => {
   try {
-    const campaigns = await fetchAllCampaigns();
+    const adAccountId = getAdAccountId(req);
+    if (!adAccountId) return res.status(400).json({ error: 'adAccountId required (query or header X-Ad-Account-Id)' });
+    const campaigns = await fetchAllCampaigns(req, adAccountId);
     res.json({ campaigns });
   } catch (error) {
     console.error('Error fetching campaigns:', error.response?.data || error.message);
@@ -588,9 +648,8 @@ app.get('/api/campaigns', async (req, res) => {
 app.get('/api/campaigns/:campaignId/analytics', async (req, res) => {
   try {
     const { campaignId } = req.params;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'No ad account selected' });
-    }
+    const adAccountId = getAdAccountId(req);
+    if (!adAccountId) return res.status(400).json({ error: 'adAccountId required (query or header X-Ad-Account-Id)' });
     const today = new Date();
     const day = today.getDate();
     const month = today.getMonth() + 1;
@@ -602,7 +661,7 @@ app.get('/api/campaigns/:campaignId/analytics', async (req, res) => {
     const campaignsParam = `List(${encodeURIComponent(campaignUrn)})`;
     const url = `${LINKEDIN_API_BASE}/adAnalytics?q=analytics&dateRange=${dateRangeVal}&timeGranularity=DAILY&accounts=${accountsParam}&pivot=CAMPAIGN&campaigns=${campaignsParam}&fields=costInLocalCurrency,dateRange`;
 
-    const response = await axios.get(url, { headers: getHeaders() });
+    const response = await axios.get(url, { headers: getHeaders(req) });
     const elements = response.data.elements || [];
     const totalCost = elements.reduce((sum, row) => sum + (parseFloat(row.costInLocalCurrency) || 0), 0);
     const analytics = elements.length ? { costInLocalCurrency: String(totalCost) } : { costInLocalCurrency: '0' };
@@ -620,13 +679,12 @@ app.get('/api/campaigns/:campaignId/analytics', async (req, res) => {
 app.get('/api/campaigns/:campaignId', async (req, res) => {
   try {
     const { campaignId } = req.params;
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'No ad account selected' });
-    }
+    const adAccountId = getAdAccountId(req);
+    if (!adAccountId) return res.status(400).json({ error: 'adAccountId required (query or header X-Ad-Account-Id)' });
 
     const response = await axios.get(
       `${LINKEDIN_API_BASE}/adAccounts/${adAccountId}/adCampaigns/${campaignId}`,
-      { headers: getHeaders() }
+      { headers: getHeaders(req) }
     );
 
     res.json({ campaign: response.data });
@@ -640,13 +698,14 @@ app.get('/api/campaigns/:campaignId', async (req, res) => {
 });
 
 // Update campaign bid
-app.patch('/api/campaigns/:campaignId/bid', async (req, res) => {
+app.patch('/api/campaigns/:campaignId/bid', requireAuth, async (req, res) => {
   try {
     const { campaignId } = req.params;
     const { newBid, previousBid, revert } = req.body;
+    const currentAdAccountId = getAdAccountId(req);
 
-    if (!adAccountId) {
-      return res.status(400).json({ error: 'No ad account selected' });
+    if (!currentAdAccountId) {
+      return res.status(400).json({ error: 'adAccountId required (query, body, or header X-Ad-Account-Id)' });
     }
     if (!newBid || newBid <= 0) {
       return res.status(400).json({ error: 'Invalid bid amount' });
@@ -654,15 +713,15 @@ app.patch('/api/campaigns/:campaignId/bid', async (req, res) => {
 
     // Get campaign to read its currency
     const campaignRes = await axios.get(
-      `${LINKEDIN_API_BASE}/adAccounts/${adAccountId}/adCampaigns/${campaignId}`,
-      { headers: getHeaders() }
+      `${LINKEDIN_API_BASE}/adAccounts/${currentAdAccountId}/adCampaigns/${campaignId}`,
+      { headers: getHeaders(req) }
     );
     const campaign = campaignRes.data;
     const currencyCode = campaign.dailyBudget?.currencyCode || campaign.unitCost?.currencyCode || 'USD';
 
     // Update the campaign bid using LinkedIn's partial update
     await axios.post(
-      `${LINKEDIN_API_BASE}/adAccounts/${adAccountId}/adCampaigns/${campaignId}`,
+      `${LINKEDIN_API_BASE}/adAccounts/${currentAdAccountId}/adCampaigns/${campaignId}`,
       {
         patch: {
           $set: {
@@ -675,7 +734,7 @@ app.patch('/api/campaigns/:campaignId/bid', async (req, res) => {
       },
       {
         headers: {
-          ...getHeaders(),
+          ...getHeaders(req),
           'X-RestLi-Method': 'PARTIAL_UPDATE'
         }
       }
@@ -683,9 +742,9 @@ app.patch('/api/campaigns/:campaignId/bid', async (req, res) => {
 
     // Persist 48h window in DB when Supabase is configured
     if (revert) {
-      await removeRecentlyOptimizedFromDb(adAccountId, campaignId);
+      await removeRecentlyOptimizedFromDb(req, currentAdAccountId, campaignId);
     } else if (previousBid != null && previousBid !== '') {
-      await recordRecentlyOptimizedInDb(adAccountId, campaignId, previousBid);
+      await recordRecentlyOptimizedInDb(req, currentAdAccountId, campaignId, previousBid);
     }
 
     res.json({ success: true, message: 'Bid updated successfully' });
@@ -699,18 +758,21 @@ app.patch('/api/campaigns/:campaignId/bid', async (req, res) => {
 });
 
 // Get spend vs budget comparison (active campaigns only, via Search API).
-// Query: bidAdjustmentPercent = 2 | 5 | 10 (default 2)
-app.get('/api/spend-analysis', async (req, res) => {
+// Query: bidAdjustmentPercent = 2 | 5 | 10 (default 2), adAccountId required
+app.get('/api/spend-analysis', requireAuth, async (req, res) => {
   try {
+    const adAccountId = getAdAccountId(req);
     if (!adAccountId) {
-      console.error('spend-analysis: adAccountId is missing');
-      return res.status(400).json({ error: 'No ad account selected', details: 'Select an ad account on the account selection page.' });
+      return res.status(400).json({ error: 'adAccountId required (query or header X-Ad-Account-Id)' });
+    }
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated', details: 'Sign in again.' });
     }
     const rawPct = req.query.bidAdjustmentPercent;
     const bidAdjustmentPercent = [2, 5, 10].includes(Number(rawPct)) ? Number(rawPct) : 2;
-    const campaigns = await fetchAllActiveCampaigns();
+    const campaigns = await fetchAllActiveCampaigns(req, adAccountId);
     if (campaigns.length === 0) {
-      console.log('spend-analysis: no active campaigns for account', adAccountId);
+      console.log('spend-analysis: no active campaigns for account', adAccountId, 'hasUser:', !!req.user);
     }
     const today = new Date();
 
@@ -732,11 +794,13 @@ app.get('/api/spend-analysis', async (req, res) => {
         const BATCH_SIZE = 10;
         const timeoutMs = 10000;
         const DAYS_IN_RANGE = 3;
-        const headers = getHeaders();
+        const headers = getHeaders(req);
         const accountUrn = `urn:li:sponsoredAccount:${adAccountId}`;
         const accountsParam = `List(${encodeURIComponent(accountUrn)})`;
+        // Last 3 complete full days (yesterday and the two days before; exclude today)
         const endDate = new Date(today);
-        const startDate = new Date(today);
+        endDate.setDate(endDate.getDate() - 1);
+        const startDate = new Date(endDate);
         startDate.setDate(startDate.getDate() - (DAYS_IN_RANGE - 1));
         const startDay = startDate.getDate();
         const startMonth = startDate.getMonth() + 1;
@@ -852,8 +916,9 @@ app.get('/api/spend-analysis', async (req, res) => {
     res.json({ analysis });
   } catch (error) {
     console.error('Error in spend analysis:', error.response?.data || error.message);
-    res.status(500).json({
-      error: 'Failed to analyze spend',
+    const status = error.status === 401 || error.response?.status === 401 ? 401 : 500;
+    res.status(status).json({
+      error: status === 401 ? 'Not authenticated' : 'Failed to analyze spend',
       details: error.response?.data || error.message
     });
   }
