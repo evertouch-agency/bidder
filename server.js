@@ -73,12 +73,30 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Check if user has ever saved account selection (onboarding completed)
+async function hasCompletedAccountSelection(req) {
+  if (!supabase || !req?.user) return true; // single-user or no user: no onboarding
+  try {
+    const { data } = await supabase
+      .from('app_settings')
+      .select('id')
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+    return !!data;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Check if authenticated (current ad account is not stored; frontend sends it per request)
-app.get('/api/auth/status', (req, res) => {
+app.get('/api/auth/status', async (req, res) => {
+  const authenticated = !!req.user;
+  const hasCompletedAccountSelectionFlag = authenticated ? await hasCompletedAccountSelection(req) : false;
   res.json({
-    authenticated: !!req.user,
+    authenticated,
     hasAdAccount: false,
-    currentAdAccountId: null
+    currentAdAccountId: null,
+    hasCompletedAccountSelection: hasCompletedAccountSelectionFlag
   });
 });
 

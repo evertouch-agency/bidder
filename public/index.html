@@ -394,6 +394,40 @@
       cursor: not-allowed;
     }
 
+    .onboarding-page {
+      max-width: 560px;
+      margin: 0 auto;
+    }
+    .onboarding-page h2 {
+      font-size: 22px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: #191919;
+    }
+    .onboarding-page .onboarding-sub {
+      color: #666;
+      font-size: 15px;
+      margin-bottom: 24px;
+    }
+    .onboarding-continue-btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      background: #0a66c2;
+      color: white;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .onboarding-continue-btn:hover:not(:disabled) {
+      background: #004182;
+    }
+    .onboarding-continue-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
     .settings-page {
       max-width: 560px;
       margin: 0 auto;
@@ -925,14 +959,19 @@
   <div id="toast" class="toast"></div>
 
   <script>
-    // Check auth status on load (no account selection page: first ad account is auto-selected)
+    // Check auth status on load; first-time users see account selection onboarding
     async function checkAuth() {
       try {
         const response = await fetch('/api/auth/status', { credentials: 'include' });
-        const { authenticated, hasAdAccount, currentAdAccountId } = await response.json();
+        const { authenticated, hasAdAccount, currentAdAccountId, hasCompletedAccountSelection } = await response.json();
 
         if (!authenticated) {
           showLoginScreen();
+          return;
+        }
+
+        if (hasCompletedAccountSelection === false) {
+          showOnboardingScreen();
           return;
         }
 
@@ -963,6 +1002,77 @@
         }
       } catch (error) {
         showLoginScreen();
+      }
+    }
+
+    async function showOnboardingScreen() {
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading your ad accounts...</p></div>';
+      try {
+        const response = await fetch('/api/settings/accounts', { credentials: 'include' });
+        const data = await response.json();
+        if (data.error) {
+          content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(data.error)}</p></div>`;
+          return;
+        }
+        const accounts = data.accounts || [];
+        const selectedSet = new Set((accounts.length > 0 ? accounts.map(a => String(a.id)) : []));
+        const listHtml = accounts.length === 0
+          ? '<p class="settings-sub">No ad accounts found for your LinkedIn account.</p>'
+          : `
+          <div class="settings-accounts-list">
+            ${accounts.map(a => {
+              const id = String(a.id);
+              const name = escapeHtml(a.name || a.id || 'Ad Account');
+              const checked = selectedSet.has(id);
+              return `<div class="settings-account-item">
+                <input type="checkbox" id="onboarding-acc-${id}" value="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
+                <label for="onboarding-acc-${id}">${name}</label>
+              </div>`;
+            }).join('')}
+          </div>`;
+        content.innerHTML = `
+          <div class="onboarding-page">
+            <h2>Choose accounts to manage</h2>
+            <p class="onboarding-sub">Select the LinkedIn ad accounts you want to manage with Bidder. You can change this later in Settings.</p>
+            ${listHtml}
+            <div class="settings-actions" style="margin-top: 20px;">
+              <button type="button" class="onboarding-continue-btn" id="onboardingContinueBtn" onclick="completeOnboarding()">Continue</button>
+            </div>
+          </div>`;
+      } catch (e) {
+        content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(e.message)}</p></div>`;
+      }
+    }
+
+    async function completeOnboarding() {
+      const btn = document.getElementById('onboardingContinueBtn');
+      const checkboxes = document.querySelectorAll('.onboarding-page .settings-account-item input[type="checkbox"]:checked');
+      const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      try {
+        const response = await fetch('/api/settings/selected-accounts', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selectedIds }),
+          credentials: 'include'
+        });
+        const data = await response.json();
+        if (data.error) throw new Error(data.details || data.error);
+        document.getElementById('headerButtons').style.display = 'flex';
+        await loadAdAccountDropdown(null);
+        if (selectedAccountId) {
+          loadAnalysis();
+        } else {
+          document.getElementById('content').innerHTML = `
+            <div class="no-campaigns">
+              <h3>No ad accounts</h3>
+              <p>Your LinkedIn Ads account has no ad accounts available.</p>
+            </div>`;
+        }
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Continue'; }
       }
     }
 
