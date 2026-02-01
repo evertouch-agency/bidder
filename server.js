@@ -753,6 +753,16 @@ app.patch('/api/campaigns/:campaignId/bid', requireAuth, async (req, res) => {
 
     res.json({ success: true, message: 'Bid updated successfully' });
   } catch (error) {
+    const rawMessage = typeof error.response?.data === 'string'
+      ? error.response.data
+      : (error.response?.data?.message || error.response?.data?.error_description || JSON.stringify(error.response?.data || error.message));
+    const isBidAboveBudget = /unitCost.*cannot be higher than.*dailyBudget|dailyBudget.*amount/i.test(rawMessage) || /unitCost\/amount cannot be set to .* it cannot be higher than/i.test(rawMessage);
+    if (isBidAboveBudget) {
+      return res.status(400).json({
+        error: 'Bid cannot exceed daily budget',
+        details: 'Bid cannot exceed daily budget'
+      });
+    }
     console.error('Error updating bid:', error.response?.data || error.message);
     res.status(500).json({
       error: 'Failed to update bid',
