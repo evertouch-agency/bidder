@@ -368,7 +368,7 @@ app.get('/api/settings/accounts', async (req, res) => {
   }
 });
 
-// DELETE /api/account — delete current user's data (settings + 48h window)
+// DELETE /api/account — delete current user's data and the user row
 app.delete('/api/account', requireAuth, async (req, res) => {
   try {
     if (supabase && req.user) {
@@ -376,6 +376,8 @@ app.delete('/api/account', requireAuth, async (req, res) => {
       if (errSettings) console.error('Error deleting app_settings:', errSettings.message);
       const { error: errRecent } = await supabase.from('recently_optimized').delete().eq('user_id', req.user.id);
       if (errRecent) console.error('Error deleting recently_optimized:', errRecent.message);
+      const { error: errUser } = await supabase.from('users').delete().eq('id', req.user.id);
+      if (errUser) console.error('Error deleting user:', errUser.message);
     }
     if (fs.existsSync(SELECTED_ACCOUNTS_PATH)) {
       fs.unlinkSync(SELECTED_ACCOUNTS_PATH);

@@ -1059,7 +1059,7 @@
     }
 
     async function deleteAccountAndData() {
-      if (!confirm('Delete all your saved data? This will remove your selected accounts and 48h optimization history. Your LinkedIn account is not affected. You can sign in again afterward.')) return;
+      if (!confirm('Delete account and all data\n\nPermanently delete your Bidder account. Your LinkedIn account is not affected. You can sign up again to Bidder any time.')) return;
       const btn = document.getElementById('settingsDeleteBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Deleting...'; }
       try {
