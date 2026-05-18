@@ -970,8 +970,8 @@
           return;
         }
 
-        if (hasCompletedAccountSelection === false) {
-          showOnboardingScreen();
+        if (hasCompletedAccountSelection !== true) {
+          await showOnboardingScreen();
           return;
         }
 
@@ -1010,9 +1010,14 @@
       content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading your ad accounts...</p></div>';
       try {
         const response = await fetch('/api/settings/accounts', { credentials: 'include' });
-        const data = await response.json();
-        if (data.error) {
-          content.innerHTML = `<div class="no-campaigns"><h3>Error</h3><p>${escapeHtml(data.error)}</p></div>`;
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          showLoginScreen();
+          return;
+        }
+        if (!response.ok || data.error) {
+          const details = data.details ? (typeof data.details === 'string' ? data.details : JSON.stringify(data.details)) : '';
+          content.innerHTML = `<div class="no-campaigns"><h3>Could not load ad accounts</h3><p>${escapeHtml(data.error || 'Request failed')}</p>${details ? `<p style="margin-top:8px;font-size:13px;color:#666">${escapeHtml(details)}</p>` : ''}</div>`;
           return;
         }
         const accounts = data.accounts || [];
@@ -1184,6 +1189,12 @@
       }
     }
 
+    async function fetchAdAccounts() {
+      const response = await fetch('/api/ad-accounts', { credentials: 'include' });
+      const data = await response.json().catch(() => ({}));
+      return { response, data };
+    }
+
     async function loadAdAccountDropdown(currentAdAccountId) {
       const trigger = document.getElementById('adAccountTrigger');
       const triggerLabel = document.getElementById('adAccountTriggerLabel');
@@ -1191,12 +1202,15 @@
       const dropdown = document.getElementById('adAccountDropdown');
       if (!trigger || !listEl) return;
       try {
-        const recentlyOptimizedIds = Array.from(getRecentlyOptimizedCampaignIds());
-        const recentQs = recentlyOptimizedIds.length ? '&recentlyOptimized=' + encodeURIComponent(recentlyOptimizedIds.join(',')) : '';
-        const response = await fetch('/api/ad-accounts?includeOptimization=1' + recentQs, { credentials: 'include' });
-        const data = await response.json();
-        if (data.error) {
+        const { response, data } = await fetchAdAccounts();
+        if (response.status === 401) {
+          showLoginScreen();
+          return;
+        }
+        if (!response.ok || data.error) {
+          const msg = data.details ? (typeof data.details === 'string' ? data.details : JSON.stringify(data.details)) : (data.error || 'Request failed');
           triggerLabel.textContent = 'Error loading accounts';
+          console.error('Failed to load ad accounts:', msg);
           return;
         }
         const accounts = data.accounts || [];
@@ -1248,6 +1262,7 @@
         });
       } catch (e) {
         triggerLabel.textContent = 'Error loading accounts';
+        console.error('Failed to load ad accounts:', e);
       }
     }
 

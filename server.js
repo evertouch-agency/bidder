@@ -29,6 +29,8 @@ const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_K
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : null;
 const multiUser = !!(supabase && JWT_SECRET);
+// 202504 is sunset; override via LINKEDIN_API_VERSION (YYYYMM) if needed
+const LINKEDIN_API_VERSION = process.env.LINKEDIN_API_VERSION || '202601';
 
 // LinkedIn API headers — use req.user when authenticated
 function getHeaders(req) {
@@ -36,7 +38,7 @@ function getHeaders(req) {
   return {
     'Authorization': `Bearer ${token}`,
     'X-Restli-Protocol-Version': '2.0.0',
-    'LinkedIn-Version': '202504',
+    'LinkedIn-Version': LINKEDIN_API_VERSION,
     'Content-Type': 'application/json'
   };
 }
@@ -73,16 +75,17 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Check if user has ever saved account selection (onboarding completed)
+// Check if user has saved account selection at least once (onboarding completed)
 async function hasCompletedAccountSelection(req) {
   if (!supabase || !req?.user) return true; // single-user or no user: no onboarding
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('app_settings')
-      .select('id')
+      .select('selected_account_ids')
       .eq('user_id', req.user.id)
       .maybeSingle();
-    return !!data;
+    if (error || !data) return false;
+    return data.selected_account_ids != null;
   } catch (e) {
     return false;
   }
@@ -216,24 +219,36 @@ app.get('/api/ad-accounts', requireAuth, async (req, res) => {
       accounts = accounts.filter(acc => set.has(String(acc.id)));
     }
     if (req.query.includeOptimization === '1' && accounts.length > 0) {
-      const recentFromQuery = req.query.recentlyOptimized
-        ? String(req.query.recentlyOptimized).split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-      const withStatus = await Promise.all(accounts.map(async (acc) => {
-        const excludeIds = supabase
-          ? (await getRecentlyOptimizedFromDb(req, acc.id)).map((e) => e.campaignId)
-          : recentFromQuery;
-        const hasOptimization = await getAccountOptimizationStatus(req, acc.id, { excludeCampaignIds: excludeIds }).catch(() => false);
-        return { ...acc, hasOptimization };
-      }));
-      accounts = withStatus;
+      try {
+        const recentFromQuery = req.query.recentlyOptimized
+          ? String(req.query.recentlyOptimized).split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        const withStatus = await Promise.all(accounts.map(async (acc) => {
+          const excludeIds = supabase
+            ? (await getRecentlyOptimizedFromDb(req, acc.id)).map((e) => e.campaignId)
+            : recentFromQuery;
+          const hasOptimization = await getAccountOptimizationStatus(req, acc.id, { excludeCampaignIds: excludeIds }).catch(() => false);
+          return { ...acc, hasOptimization };
+        }));
+        accounts = withStatus;
+      } catch (optErr) {
+        console.error('Error computing account optimization status:', optErr.message);
+        // Return accounts without hasOptimization flags rather than failing the whole request
+      }
     }
     res.json({ accounts });
   } catch (error) {
-    console.error('Error fetching ad accounts:', error.response?.data || error.message);
-    res.status(500).json({
+    const details = error.response?.data || error.message;
+    console.error('Error fetching ad accounts:', details);
+    const status = error.response?.status;
+    const code = details?.code || details?.serviceErrorCode;
+    const hint = status === 426 || code === 'NONEXISTENT_VERSION'
+      ? `LinkedIn API version ${LINKEDIN_API_VERSION} is not active. Set LINKEDIN_API_VERSION in .env (e.g. 202601).`
+      : null;
+    res.status(status && status >= 400 && status < 600 ? status : 500).json({
       error: 'Failed to fetch ad accounts',
-      details: error.response?.data || error.message
+      details,
+      hint
     });
   }
 });
@@ -248,7 +263,7 @@ async function readSelectedAccountIds(req) {
         .from('app_settings')
         .select('selected_account_ids')
         .eq('user_id', req.user.id)
-        .single();
+        .maybeSingle();
       if (!error && data && data.selected_account_ids != null) return data.selected_account_ids;
       return null;
     } catch (e) {
@@ -353,7 +368,7 @@ app.get('/api/settings/selected-accounts', async (req, res) => {
 });
 
 // PUT /api/settings/selected-accounts — save which accounts to show in dropdown
-app.put('/api/settings/selected-accounts', async (req, res) => {
+app.put('/api/settings/selected-accounts', requireAuth, async (req, res) => {
   const { selectedIds } = req.body;
   if (!Array.isArray(selectedIds)) {
     return res.status(400).json({ error: 'selectedIds must be an array' });
@@ -367,8 +382,8 @@ app.put('/api/settings/selected-accounts', async (req, res) => {
   }
 });
 
-// GET /api/settings/accounts — all accounts + selectedIds (for settings page)
-app.get('/api/settings/accounts', async (req, res) => {
+// GET /api/settings/accounts — all accounts + selectedIds (for settings / onboarding)
+app.get('/api/settings/accounts', requireAuth, async (req, res) => {
   try {
     const response = await axios.get(
       `${LINKEDIN_API_BASE}/adAccounts?q=search`,
@@ -378,10 +393,12 @@ app.get('/api/settings/accounts', async (req, res) => {
     const selectedIds = await readSelectedAccountIds(req);
     res.json({ accounts, selectedIds });
   } catch (error) {
-    console.error('Error fetching ad accounts for settings:', error.response?.data || error.message);
-    res.status(500).json({
+    const details = error.response?.data || error.message;
+    console.error('Error fetching ad accounts for settings:', details);
+    const status = error.response?.status;
+    res.status(status && status >= 400 && status < 600 ? status : 500).json({
       error: 'Failed to fetch ad accounts',
-      details: error.response?.data || error.message
+      details
     });
   }
 });
@@ -964,5 +981,6 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Bidder running on ${BASE_URL}`);
+  console.log(`LinkedIn API version: ${LINKEDIN_API_VERSION}`);
   console.log(`Make sure to add this redirect URI to your LinkedIn app: ${REDIRECT_URI}`);
 });
